@@ -138,6 +138,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #dlg label{display:block;font-size:12.5px;color:var(--txt-dim);margin:14px 0 6px}
 #dlg select,#dlg input{width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--side-bd);background:var(--card);color:var(--txt);font-family:inherit;font-size:13px}
 #dlg .row2{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
+#dlg .cache-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#dlg label.inline{display:flex;align-items:center;gap:6px;margin:0;font-size:13px;color:var(--txt);cursor:pointer}
+#dlg label.inline input{width:auto;margin:0}
+#dlg .tip{font-size:11.5px;color:var(--txt-dim);line-height:1.7;margin-top:6px}
+#dlg #set-msg{font-size:12px;color:var(--accent);margin-top:6px}
 ::-webkit-scrollbar{width:9px;height:9px}
 ::-webkit-scrollbar-thumb{background:rgba(128,128,128,.35);border-radius:5px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -214,6 +219,13 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
     <select id="set-theme"><option value="light">浅色（微信白）</option><option value="dark">深色</option></select>
     <label>图片显示</label>
     <select id="set-img"><option value="on">显示图片（联网加载）</option><option value="off">只看占位框（省流量）</option></select>
+    <label>本地缓存</label>
+    <div class="cache-row">
+      <label class="inline"><input type="checkbox" id="set-auto"> 记住导入的数据（下次打开自动恢复）</label>
+      <button id="btn-clear-cache">清除本地缓存</button>
+    </div>
+    <div id="set-msg"></div>
+    <div class="tip">缓存按浏览器保存，跟文件放在哪个目录无关。关掉开关后不再写入；已有的缓存请点上面按钮清掉。注意<b>所有本地 HTML 页面共享同一份存储</b>，其它本地网页理论上也能读到它。</div>
     <div class="row2">
       <button id="btn-export-pkg">导出数据包</button>
       <button id="btn-export-all">导出全部会话 HTML</button>
@@ -238,7 +250,8 @@ const S = {
   theme: 'light', showImg: true, sort: 'time',
   hits: [],              // 全文搜索结果
   win: 250,              // 每批渲染条数
-  importing: false       // 用户已开始手动导入（用于阻止开机缓存恢复覆盖）
+  importing: false,      // 用户已开始手动导入（用于阻止开机缓存恢复覆盖）
+  remember: true         // 是否把导入的数据缓存到浏览器（下次打开自动恢复）
 };
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -830,18 +843,42 @@ function fillSettings() {
     return '<option value="' + esc(id) + '"' + (String(S.meId) === String(id) ? ' selected' : '') + '>' + esc(nm) + '（ID ' + esc(id) + '，' + v.toLocaleString() + ' 条）</option>';
   }).join('');
   $('set-sort').value = S.sort; $('set-theme').value = S.theme; $('set-img').value = S.showImg ? 'on' : 'off';
+  $('set-auto').checked = S.remember;
 }
 $('set-me').onchange = e => { S.meId = e.target.value || null; const o = e.target.selectedOptions[0]; S.meName = o ? o.textContent.split('（')[0] : ''; renderMsgs(false); saveConf(); };
 $('set-sort').onchange = e => { S.sort = e.target.value; renderSidebar(); saveConf(); };
 $('set-theme').onchange = e => { setTheme(e.target.value); saveConf(); };
 $('set-img').onchange = e => { S.showImg = e.target.value === 'on'; if (S.cur) renderMsgs(false); saveConf(); };
+$('set-auto').onchange = e => {
+  S.remember = e.target.checked; saveConf();
+  setMsg(S.remember ? '已开启：数据会缓存到浏览器，下次打开自动恢复。'
+                    : '已关闭：不再写入缓存（想删掉已有缓存请点「清除本地缓存」）。');
+};
+$('btn-clear-cache').onclick = async () => {
+  if (!confirm('清除浏览器里缓存的聊天记录？\n\n原始导出文件不会被改动，只是下次打开需要重新导入。')) return;
+  const r = await new Promise(res => {
+    try {
+      const q = indexedDB.deleteDatabase('chatviewer');
+      q.onsuccess = () => res('ok'); q.onerror = () => res('err'); q.onblocked = () => res('blocked');
+    } catch (e) { res('err'); }
+  });
+  setMsg(r === 'ok' ? '已清除。当前页面内存里的数据还在，刷新后就不会自动恢复了。'
+    : r === 'blocked' ? '有其它标签页占用这个数据库，关掉后重试。'
+    : '清除失败，可在控制台执行 indexedDB.deleteDatabase("chatviewer")');
+};
+function setMsg(t) {
+  const el = $('set-msg'); if (!el) return;
+  el.textContent = t;
+  clearTimeout(window.__mt);
+  window.__mt = setTimeout(() => { el.textContent = ''; }, 7000);
+}
 $('btn-theme').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
 function setTheme(t) { S.theme = t; document.documentElement.dataset.theme = t; $('btn-theme').textContent = t === 'dark' ? '☀' : '◐'; }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { $('lb').classList.remove('on'); $('dlg').classList.remove('on'); }
   if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); }
 });
-function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify({ theme: S.theme, sort: S.sort, showImg: S.showImg, meId: S.meId, meName: S.meName })); } catch (e) { } }
+function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify({ theme: S.theme, sort: S.sort, showImg: S.showImg, meId: S.meId, meName: S.meName, remember: S.remember })); } catch (e) { } }
 function loadConf() {
   try {
     const c = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
@@ -850,6 +887,7 @@ function loadConf() {
     if (c.showImg === false) S.showImg = false;
     if (c.meId !== undefined) S.meId = c.meId;
     if (c.meName) S.meName = c.meName;
+    if (c.remember === false) S.remember = false;
   } catch (e) { } setTheme(S.theme);
 }
 /* IndexedDB 缓存（file:// 下可能不可用，失败就静默跳过） */
@@ -862,6 +900,10 @@ function idb() {
   });
 }
 async function saveCache() {
+  if (!S.remember) {                      // 关掉缓存时不写入，避免数据留在浏览器里
+    const st = $('status'); if (st) st.textContent += '\n未开启「记住导入的数据」，本次不写入缓存。';
+    return;
+  }
   try {
     const db = await idb();
     const payload = JSON.stringify(serialize());
@@ -870,6 +912,7 @@ async function saveCache() {
       tx.objectStore('cache').put(payload, 'last');
       tx.oncomplete = res; tx.onerror = () => rej(tx.error);
     });
+    db.close();                                   // 用完必须关，否则「清除本地缓存」会被阻塞
     $('status').textContent += '\n已在本机缓存，下次打开可一键恢复。';
   } catch (e) { /* 静默 */ }
 }
@@ -881,6 +924,7 @@ async function tryRestore() {
       const q = tx.objectStore('cache').get('last');
       q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
     });
+    db.close();                                   // 用完必须关，否则「清除本地缓存」会被阻塞
     if (S.importing || document.getElementById('intro').classList.contains('hide')) return false;  // 用户已开始导入，别覆盖
     if (!payload) return false;
     const d = JSON.parse(payload);
@@ -898,6 +942,7 @@ async function tryRestore() {
 /* ==================== 10. 启动 ==================== */
 async function boot() {
   loadConf();
+  if (!S.remember) return;                // 关掉了缓存/自动恢复，直接停在导入页
   const ok = await tryRestore();
   if (ok && !S.importing) {
     $('intro-sub').innerHTML = '检测到上次导入的缓存数据（<b>' + S.sessions.length + ' 个会话</b>），已自动载入。';

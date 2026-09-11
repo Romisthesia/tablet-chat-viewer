@@ -78,6 +78,64 @@ async function buildPkg(page) {
     restored.sessions + ' 会话 / ' + restored.total.toLocaleString() + ' 条');
   await page.screenshot({ path: C.path.join(C.OUT, 'pkg_restore.png') });
 
+
+  // ---- D. 缓存开关 与「清除本地缓存」 ----
+  page.on('dialog', async d => { await d.accept(); });        // 清除缓存前有确认弹窗，自动确认
+
+  await page.evaluate(() => document.getElementById('btn-set').click());   // 打开面板才会回填控件状态
+  await C.sleep(250);
+  const ui = await page.evaluate(() => {
+    const a = document.getElementById('set-auto');
+    return { hasAuto: !!a, autoChecked: !!(a && a.checked), hasClear: !!document.getElementById('btn-clear-cache') };
+  });
+  chk('设置里有「记住导入的数据」开关且默认开启', ui.hasAuto && ui.autoChecked, JSON.stringify(ui));
+  chk('设置里有「清除本地缓存」按钮', ui.hasClear);
+
+  // D1：关掉开关 → 刷新后不应自动恢复
+  await page.evaluate(() => { const el = document.getElementById('set-auto'); el.checked = false; el.dispatchEvent(new Event('change')); });
+  await C.sleep(300);
+  await page.goto('about:blank');
+  await page.goto(C.PAGE, { waitUntil: 'load' });
+  await page.waitForFunction('!!window.__viewer');
+  await C.sleep(1500);
+  const offState = await page.evaluate(() => ({
+    hidden: document.getElementById('intro').classList.contains('hide'),
+    sessions: window.__viewer.S.sessions.length,
+    remember: window.__viewer.S.remember
+  }));
+  chk('关掉开关后不再自动恢复（停在导入页）', !offState.hidden && offState.sessions === 0, JSON.stringify(offState));
+
+  // D2：点「清除本地缓存」
+  await page.evaluate(() => document.getElementById('btn-set').click());
+  await C.sleep(250);
+  await page.evaluate(() => document.getElementById('btn-clear-cache').click());
+  await C.sleep(1500);
+  const cleared = await page.evaluate(async () => {
+    let dbs = null;
+    try { dbs = (await indexedDB.databases()).map(d => d.name); } catch (e) { return { dbs: 'unavailable' }; }
+    return { dbs, present: dbs.indexOf('chatviewer') >= 0, msg: document.getElementById('set-msg').textContent };
+  });
+  chk('清除后浏览器里不再有缓存数据库', cleared.present === false, JSON.stringify(cleared));
+
+  // D3：重新打开开关 → 再导入 → 刷新 → 自动恢复又能用（可逆）
+  await page.evaluate(() => { const el = document.getElementById('set-auto'); el.checked = true; el.dispatchEvent(new Event('change')); });
+  await page.evaluate(async (txt) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([txt], 'chat_data.json', { type: 'application/json' }));
+    const el = document.getElementById('f-pkg'); el.files = dt.files; el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, pkgTxt);
+  await C.sleep(2500);
+  await page.goto('about:blank');
+  await page.goto(C.PAGE, { waitUntil: 'load' });
+  await page.waitForFunction('!!window.__viewer');
+  await C.sleep(2500);
+  const again = await page.evaluate(() => ({
+    hidden: document.getElementById('intro').classList.contains('hide'),
+    sessions: window.__viewer.S.sessions.length,
+    total: window.__viewer.S.sessions.reduce((a, s) => a + s.n, 0)
+  }));
+  chk('重新开启后自动恢复又生效（可逆）', again.hidden && again.sessions === pkgJson.sessions.length, JSON.stringify(again));
+
   console.log('\n页面错误：' + (errors.length ? JSON.stringify(errors.slice(0, 5)) : '无'));
   chk('无页面错误', errors.length === 0);
   console.log('\n结果: ' + (fails.length ? 'FAILED -> ' + fails.join(' | ') : 'ALL PASS'));
