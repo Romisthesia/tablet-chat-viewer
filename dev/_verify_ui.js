@@ -224,23 +224,65 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   await page.evaluate(() => document.getElementById('btn-set').click());
   await C.sleep(250);
 
+  const bubbleBg = () => {
+    const bub = document.querySelector('#msgs .m.me .bub') || document.querySelector('#msgs .bub');
+    return getComputedStyle(bub).backgroundColor;
+  };
   const look = await page.evaluate(async () => {
-    const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); };
-    set(document.getElementById('set-radius'), '18');
-    set(document.getElementById('set-c-me'), '#123456');
+    const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); };
+    set('set-radius', '18');
+    set('set-c-me-l', '#123456');          // 浅色模式那一套
+    set('set-c-me-d', '#ffcc00');          // 深色模式那一套
     await new Promise(x => setTimeout(x, 250));
     const bub = document.querySelector('#msgs .m.me .bub') || document.querySelector('#msgs .bub');
     const cs = getComputedStyle(bub);
+    const conf = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
     return {
       圆角: Math.round(parseFloat(cs.borderTopLeftRadius)),
-      背景: cs.backgroundColor, 文字: cs.color,
-      存下的圆角: (JSON.parse(localStorage.getItem('chatview.conf') || '{}')).radius
+      当前背景: cs.backgroundColor, 文字: cs.color,
+      存下的圆角: conf.radius, 存下的颜色: conf.colors,
+      浅色标记: document.getElementById('look-cur-l').textContent
     };
   });
   chk('滑杆能改气泡圆角', look.圆角 === 18, JSON.stringify(look));
-  chk('自定义我方气泡颜色生效', look.背景 === 'rgb(18, 52, 86)', look.背景);
+  chk('浅色模式下用「浅色」那一套颜色', look.当前背景 === 'rgb(18, 52, 86)', look.当前背景);
   chk('深色气泡自动改用浅色文字', look.文字 === 'rgb(242, 242, 242)', look.文字);
-  chk('外观设置被持久化', look.存下的圆角 === 18, look.存下的圆角);
+  chk('圆角与两套颜色分别持久化',
+    look.存下的圆角 === 18 && look.存下的颜色 && look.存下的颜色.light.me === '#123456' && look.存下的颜色.dark.me === '#ffcc00',
+    JSON.stringify(look.存下的颜色));
+  chk('面板标出当前生效的是哪一套', /正在用/.test(look.浅色标记), look.浅色标记);
+
+  // 切到深色 → 应自动换成深色那一套（互不影响）
+  const lightBg = await page.evaluate(bubbleBg);
+  const swap = await page.evaluate(async () => {
+    const sel = document.getElementById('set-theme'); sel.value = 'dark'; sel.dispatchEvent(new Event('change'));
+    await new Promise(x => setTimeout(x, 400));
+    const bub = document.querySelector('#msgs .m.me .bub') || document.querySelector('#msgs .bub');
+    const now = getComputedStyle(bub).backgroundColor;
+    document.getElementById('btn-set').click();
+    await new Promise(x => setTimeout(x, 200));
+    return { 现背景: now, 深色输入框: document.getElementById('set-c-me-d').value, 深色标记: document.getElementById('look-cur-d').textContent };
+  });
+  chk('切到深色模式后自动换成深色那一套颜色', lightBg === 'rgb(18, 52, 86)' && swap.现背景 === 'rgb(255, 204, 0)', lightBg + ' → ' + swap.现背景);
+  chk('深色模式下标记当前生效的是深色那套', /正在用/.test(swap.深色标记), swap.深色标记);
+
+  // 各自独立：改深色那套不影响浅色那套
+  const indep = await page.evaluate(async () => {
+    const el = document.getElementById('set-c-me-d'); el.value = '#00aa88'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change'));
+    await new Promise(x => setTimeout(x, 250));
+    const conf = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
+    return { 浅色套: conf.colors.light.me, 深色套: conf.colors.dark.me };
+  });
+  chk('改深色那套不影响浅色那套', indep.浅色套 === '#123456' && indep.深色套 === '#00aa88', JSON.stringify(indep));
+
+  // 回到浅色，确认取的是浅色那套
+  const back = await page.evaluate(async () => {
+    const sel = document.getElementById('set-theme'); sel.value = 'light'; sel.dispatchEvent(new Event('change'));
+    await new Promise(x => setTimeout(x, 400));
+    const bub = document.querySelector('#msgs .m.me .bub') || document.querySelector('#msgs .bub');
+    return getComputedStyle(bub).backgroundColor;
+  });
+  chk('切回浅色模式取回浅色那一套颜色', back === 'rgb(18, 52, 86)', back);
 
   const reset = await page.evaluate(async () => {
     document.getElementById('btn-look-reset').click();

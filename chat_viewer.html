@@ -249,9 +249,17 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
       <span class="lbl">圆角</span>
       <input type="range" id="set-radius" min="0" max="24" step="1" value="6">
       <span class="val" id="radius-val">6px</span>
-      <label class="inline">我方<input type="color" id="set-c-me"></label>
-      <label class="inline">对方<input type="color" id="set-c-other"></label>
-      <button id="btn-look-reset">恢复默认</button>
+      <button id="btn-look-reset">圆角与颜色恢复默认</button>
+    </div>
+    <label>气泡颜色 · 浅色模式<span class="val" id="look-cur-l"></span></label>
+    <div class="look-row">
+      <label class="inline">我方<input type="color" id="set-c-me-l"></label>
+      <label class="inline">对方<input type="color" id="set-c-other-l"></label>
+    </div>
+    <label>气泡颜色 · 深色模式<span class="val" id="look-cur-d"></span></label>
+    <div class="look-row">
+      <label class="inline">我方<input type="color" id="set-c-me-d"></label>
+      <label class="inline">对方<input type="color" id="set-c-other-d"></label>
     </div>
     <label>每条消息显示精确时间戳</label>
     <div class="cache-row">
@@ -300,8 +308,10 @@ const S = {
   importing: false,      // 用户已开始手动导入（用于阻止开机缓存恢复覆盖）
   remember: true,        // 是否把导入的数据缓存到浏览器（下次打开自动恢复）
   radius: 6,             // 气泡圆角 px
-  meColor: '',           // 我方气泡颜色（空=用主题默认）
-  otherColor: '',        // 对方气泡颜色（空=用主题默认）
+  colors: {              // 气泡颜色：深浅模式各一套（空字符串 = 用该主题的默认色）
+    light: { me: '', other: '' },
+    dark: { me: '', other: '' }
+  },
   stamp: false,          // 每条消息显示完整时间戳
   avatars: {}            // 昵称 -> 自定义头像 dataURL
 };
@@ -913,11 +923,16 @@ function fillSettings() {
   $('set-sort').value = S.sort; $('set-theme').value = S.theme; $('set-img').value = S.showImg ? 'on' : 'off';
   $('set-auto').checked = S.remember;
   // 气泡外观：颜色框回填成「当前实际生效」的颜色
-  const dark = resolvedTheme() === 'dark';
   $('set-radius').value = (typeof S.radius === 'number' ? S.radius : 6);
   $('radius-val').textContent = (typeof S.radius === 'number' ? S.radius : 6) + 'px';
-  $('set-c-me').value = toHex(S.meColor) || (dark ? '#3eb575' : '#95ec69');
-  $('set-c-other').value = toHex(S.otherColor) || (dark ? '#2c2c2c' : '#ffffff');
+  const setIn = (id, tint, key, def) => { const el = $(id); if (el) el.value = toHex(S.colors[tint] && S.colors[tint][key]) || def; };
+  setIn('set-c-me-l', 'light', 'me', '#95ec69');
+  setIn('set-c-other-l', 'light', 'other', '#ffffff');
+  setIn('set-c-me-d', 'dark', 'me', '#3eb575');
+  setIn('set-c-other-d', 'dark', 'other', '#2c2c2c');
+  const nowDark = resolvedTheme() === 'dark';
+  $('look-cur-l').textContent = nowDark ? '' : '（当前正在用这套）';
+  $('look-cur-d').textContent = nowDark ? '（当前正在用这套）' : '';
   $('set-stamp').checked = !!S.stamp;
   fillAvatarSelect();
 }
@@ -927,14 +942,20 @@ $('set-theme').onchange = e => { setTheme(e.target.value); saveConf(); };
 /* 气泡外观 */
 $('set-radius').oninput = e => { S.radius = +e.target.value; applyLook(); };
 $('set-radius').onchange = () => saveConf();
-$('set-c-me').oninput = e => { S.meColor = e.target.value; applyLook(); };
-$('set-c-me').onchange = () => saveConf();
-$('set-c-other').oninput = e => { S.otherColor = e.target.value; applyLook(); };
-$('set-c-other').onchange = () => saveConf();
+const bindColor = (id, tint, key) => {
+  const el = $(id); if (!el) return;
+  el.oninput = e => { S.colors[tint][key] = e.target.value; applyLook(); };
+  el.onchange = () => saveConf();
+};
+bindColor('set-c-me-l', 'light', 'me');
+bindColor('set-c-other-l', 'light', 'other');
+bindColor('set-c-me-d', 'dark', 'me');
+bindColor('set-c-other-d', 'dark', 'other');
 $('btn-look-reset').onclick = () => {
-  S.radius = 6; S.meColor = ''; S.otherColor = '';
+  S.radius = 6;
+  S.colors = { light: { me: '', other: '' }, dark: { me: '', other: '' } };
   applyLook(); fillSettings(); saveConf();
-  setMsg('气泡外观已恢复默认。');
+  setMsg('圆角与两套气泡颜色都已恢复默认。');
 };
 /* 精确时间戳 */
 $('set-stamp').onchange = e => { S.stamp = e.target.checked; saveConf(); if (S.cur) renderMsgs(false); };
@@ -1010,6 +1031,7 @@ function resolvedTheme() { return S.theme === 'auto' ? (mqDark.matches ? 'dark' 
 function applyTheme() {
   const t = resolvedTheme();
   document.documentElement.dataset.theme = t;
+  if (typeof applyLook === 'function') applyLook();      // 换主题要换成那套气泡颜色
   const btn = $('btn-theme');
   if (btn) {
     btn.textContent = t === 'dark' ? '☾' : '☀';
@@ -1046,15 +1068,16 @@ function applyLook() {
   const st = document.documentElement.style;
   const rad = (typeof S.radius === 'number' && S.radius >= 0) ? S.radius : 6;
   st.setProperty('--radius', rad + 'px');
-  const set = (bgVar, txtVar, color) => {
+  const put = (bgVar, txtVar, color) => {
     if (color) {
       st.setProperty(bgVar, color);
       const t = contrastText(color);
       if (t) st.setProperty(txtVar, t); else st.removeProperty(txtVar);
     } else { st.removeProperty(bgVar); st.removeProperty(txtVar); }
   };
-  set('--bub-me', '--bub-me-txt', S.meColor);
-  set('--bub-other', '--bub-other-txt', S.otherColor);
+  const set = (S.colors && S.colors[resolvedTheme()]) || {};   // 深浅模式各一套
+  put('--bub-me', '--bub-me-txt', set.me);
+  put('--bub-other', '--bub-other-txt', set.other);
   const rv = $('radius-val'); if (rv) rv.textContent = rad + 'px';
   const sr = $('set-radius'); if (sr && +sr.value !== rad) sr.value = rad;
 }
@@ -1105,7 +1128,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); }
 });
 function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify({ theme: S.theme, sort: S.sort, showImg: S.showImg, meId: S.meId, meName: S.meName, remember: S.remember,
-                     radius: S.radius, meColor: S.meColor, otherColor: S.otherColor, stamp: S.stamp, avatars: S.avatars })); } catch (e) { } }
+                     radius: S.radius, colors: S.colors, stamp: S.stamp, avatars: S.avatars })); } catch (e) { } }
 function loadConf() {
   try {
     const c = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
@@ -1116,8 +1139,18 @@ function loadConf() {
     if (c.meName) S.meName = c.meName;
     if (c.remember === false) S.remember = false;
     if (typeof c.radius === 'number') S.radius = c.radius;
-    if (c.meColor) S.meColor = c.meColor;
-    if (c.otherColor) S.otherColor = c.otherColor;
+    if (c.colors && typeof c.colors === 'object') {          // 深浅两套颜色
+      for (const k of ['light', 'dark']) if (c.colors[k]) {
+        S.colors[k].me = c.colors[k].me || '';
+        S.colors[k].other = c.colors[k].other || '';
+      }
+    }
+    if (c.meColor || c.otherColor) {                         // 旧版只有一套 → 迁到两种模式，观感不变
+      for (const k of ['light', 'dark']) {
+        if (c.meColor) S.colors[k].me = c.meColor;
+        if (c.otherColor) S.colors[k].other = c.otherColor;
+      }
+    }
     if (c.stamp === true) S.stamp = true;
     if (c.avatars && typeof c.avatars === 'object') S.avatars = c.avatars;
   } catch (e) { }
