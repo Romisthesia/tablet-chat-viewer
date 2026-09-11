@@ -259,6 +259,35 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   });
   chk('精确时间戳开关对每条消息生效', stamp.全为完整时间, JSON.stringify(stamp));
 
+  const stampPos = await page.evaluate(() => {
+    const m = document.querySelector('#msgs .m.me') || document.querySelector('#msgs .m');
+    const bub = m.querySelector('.bub'), tm = m.querySelector('.tm');
+    const rb = bub.getBoundingClientRect(), rt = tm.getBoundingClientRect();
+    const cs = getComputedStyle(tm);
+    return { 我侧: m.classList.contains('me'), 在气泡下方: rt.top >= rb.bottom - 1,
+             与外侧对齐: (m.classList.contains('me') ? Math.abs(rt.right - rb.right) : Math.abs(rt.left - rb.left)) < 2,
+             相对气泡: { 气泡: [Math.round(rb.left), Math.round(rb.right), Math.round(rb.bottom)], 时间戳: [Math.round(rt.left), Math.round(rt.right), Math.round(rt.top)] },
+             字号: cs.fontSize, 等宽数字: /tabular-nums/.test(cs.fontVariantNumeric), 内容: tm.textContent };
+  });
+  chk('精确时间戳排在气泡下方、与外侧边缘对齐', stampPos.在气泡下方 && stampPos.与外侧对齐, JSON.stringify(stampPos));
+  chk('时间戳样式已生效（10px + 等宽数字）', stampPos.字号 === '10px' && stampPos.等宽数字, stampPos.字号 + ' / 等宽=' + stampPos.等宽数字);
+
+  await page.evaluate(() => { const c = document.getElementById('set-stamp'); c.checked = false; c.dispatchEvent(new Event('change')); });
+  await C.sleep(500);
+  const sidePos = await page.evaluate(() => {
+    const m = document.querySelector('#msgs .m.me') || document.querySelector('#msgs .m');
+    const bub = m.querySelector('.bub'), tm = m.querySelector('.tm');
+    const rb = bub.getBoundingClientRect(), rt = tm.getBoundingClientRect();
+    const cs = getComputedStyle(tm);
+    const me = m.classList.contains('me');
+    return { 贴在气泡侧边: (me ? rt.right <= rb.left + 1 : rt.left >= rb.right - 1),
+             底边对齐: Math.abs(rt.bottom - rb.bottom) < 4,
+             字号: cs.fontSize, 等宽数字: /tabular-nums/.test(cs.fontVariantNumeric), 内容: tm.textContent };
+  });
+  chk('关闭后 时:分 贴在气泡外侧底部（不占额外行高）', sidePos.贴在气泡侧边 && sidePos.底边对齐 && sidePos.字号 === '10.5px' && sidePos.等宽数字, JSON.stringify(sidePos));
+
+
+
   const avName = await page.evaluate(() => { const el = document.querySelector('#msgs .av'); return el ? el.dataset.name : null; });
   if (avName) {
     const av = await page.evaluate(async (name) => {

@@ -97,9 +97,14 @@ button:disabled{opacity:.45;cursor:default}
 .bub{position:relative;background:var(--bub-other);color:var(--bub-other-txt);border-radius:var(--radius);padding:8px 12px;line-height:1.62;word-break:break-word;white-space:pre-wrap;box-shadow:var(--shadow);font-size:14px}
 .m.me .bub{background:var(--bub-me);color:var(--bub-me-txt)}
 .bub.imgp{padding:4px;background:transparent;box-shadow:none}
-.bub .tm{font-size:10.5px;color:var(--txt-dim);margin-left:8px;white-space:nowrap;user-select:none}
-.m.me .bub .tm{color:inherit;opacity:.55}
-html[data-theme="dark"] .bub .tm{color:#8a8a8a}
+/* 时间戳在气泡外侧（不是气泡内），所以选择器必须是 .col .tm —— 之前写 .bub .tm 一直没生效 */
+.col .tm{font-size:10.5px;color:var(--txt-dim);white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}
+.m.me .col .tm{color:inherit;opacity:.5}
+.col .tm.side{margin-left:7px}
+.m.me .col .tm.side{margin-left:0;margin-right:7px}
+.col .tm.blk{margin-top:3px;font-size:10px;color:var(--txt-dim);opacity:.75}
+.m.me .col .tm.blk{color:inherit;opacity:.55}
+html[data-theme="dark"] .col .tm{color:#8a8a8a}
 .bub .hid{display:none}
 .bub:hover .hid{display:inline}
 .imgwrap{display:block;position:relative;border-radius:var(--radius);overflow:hidden;background:var(--img-ph);cursor:zoom-in;line-height:0}
@@ -574,10 +579,15 @@ function msgHTML(m, idx, q) {
   } else {
     body = '<div class="bub" data-i="' + idx + '">[不支持的消息类型] ' + esc(m.text.slice(0, 200)) + '</div>';
   }
-  const tm = '<span class="tm" title="' + fmtTime(m.ts) + '">' + (S.stamp ? fmtTime(m.ts) : fmtHM(m.ts)) + '</span>';
+  /* 时间戳：默认贴在气泡外侧底部（不占额外行高）；开启精确时间戳时较长，改到气泡下方并与外侧边缘对齐 */
+  const tm = '<span class="tm ' + (S.stamp ? 'blk' : 'side') + '" title="' + fmtTime(m.ts) + '">' +
+    (S.stamp ? fmtTime(m.ts) : fmtHM(m.ts)) + '</span>';
+  const rowStyle = S.stamp
+    ? 'display:flex;flex-direction:column;align-items:' + (me ? 'flex-end' : 'flex-start')
+    : 'display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '');
   return '<div class="m' + (me ? ' me' : '') + '" id="m-' + idx + '">' + avatar(m.fromName || (me ? S.meName : ''), 34) +
     '<div class="col">' + (showWho ? '<div class="who">' + esc(m.fromName) + '</div>' : '') +
-    '<div style="display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '') + '">' + body + tm + '</div></div></div>';
+    '<div style="' + rowStyle + '">' + body + tm + '</div></div></div>';
 }
 function renderMsgs(preserve) {
   const s = S.cur; if (!s) return;
@@ -829,7 +839,8 @@ function exportSessionHTML(s) {
     + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
     + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:14px}'
-    + '.m.me .bub{background:#95ec69}.tm{font-size:10.5px;color:#aaa;margin:0 6px;align-self:flex-end}'
+    + '.m.me .bub{background:#95ec69}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
+    + '.tm.side{margin:0 7px;align-self:flex-end}.tm.blk{margin-top:3px;font-size:10px;color:#999}'
     + '.imgwrap img{max-width:280px;max-height:280px;border-radius:5px}h1{font-size:17px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#999;font-size:12px;margin-bottom:20px}';
   let h = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.name) + '</title><style>' + css + '</style></head><body><div class="w">'
     + '<h1>' + esc(s.name) + '</h1><div class="sub">' + (s.kind === 'GROUP' ? '群聊' : '私聊') + ' · ' + s.n.toLocaleString() + ' 条 · ' + fmtTime(s.first) + ' ~ ' + fmtTime(s.last) + '</div>';
@@ -847,7 +858,10 @@ function exportSessionHTML(s) {
     }
     else body = '<div class="bub">[' + (m.t === 'N' ? '笔记' : '图片') + ']</div>';
     h += '<div class="m' + (me ? ' me' : '') + '"><div class="av" style="background:' + colorOf(m.fromName) + '">' + esc(initialOf(m.fromName)) + '</div>'
-      + '<div class="col">' + who + '<div style="display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '') + '">' + body + '<span class="tm">' + fmtHM(m.ts) + '</span></div></div></div>';
+      + '<div class="col">' + who + '<div style="' + (S.stamp
+        ? 'display:flex;flex-direction:column;align-items:' + (me ? 'flex-end' : 'flex-start')
+        : 'display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '')) + '">' + body
+      + '<span class="tm ' + (S.stamp ? 'blk' : 'side') + '">' + (S.stamp ? fmtTime(m.ts) : fmtHM(m.ts)) + '</span></div></div></div>';
     lastTs = m.ts;
   }
   h += '</div></body></html>';
