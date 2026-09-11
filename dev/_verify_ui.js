@@ -18,6 +18,8 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
   await page.evaluate(() => window.__viewer.setTheme('light'));
   const info = await C.ingestAll(page);
+  // 真实导入路径会把导入遮罩藏起来；测试里直接灌数据，这里补上，否则截图拍到的都是遮罩
+  await page.evaluate(() => document.getElementById('intro').classList.add('hide'));
   await C.sleep(1200);
   const pick = await C.pickSessions(page);
   console.log('数据：' + info.sessions + ' 会话 / ' + info.total.toLocaleString() + ' 条 | 我 = ' + info.me);
@@ -214,6 +216,77 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
 
   await page.evaluate(() => window.__viewer.setTheme('auto'));
   await C.sleep(200);
+
+
+  // ---------- 6c. 气泡外观 / 自定义头像 / 精确时间戳 ----------
+  await page.evaluate(id => window.__viewer.openSession(id), pick.single || pick.biggest);
+  await C.sleep(600);
+  await page.evaluate(() => document.getElementById('btn-set').click());
+  await C.sleep(250);
+
+  const look = await page.evaluate(async () => {
+    const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); };
+    set(document.getElementById('set-radius'), '18');
+    set(document.getElementById('set-c-me'), '#123456');
+    await new Promise(x => setTimeout(x, 250));
+    const bub = document.querySelector('#msgs .m.me .bub') || document.querySelector('#msgs .bub');
+    const cs = getComputedStyle(bub);
+    return {
+      圆角: Math.round(parseFloat(cs.borderTopLeftRadius)),
+      背景: cs.backgroundColor, 文字: cs.color,
+      存下的圆角: (JSON.parse(localStorage.getItem('chatview.conf') || '{}')).radius
+    };
+  });
+  chk('滑杆能改气泡圆角', look.圆角 === 18, JSON.stringify(look));
+  chk('自定义我方气泡颜色生效', look.背景 === 'rgb(18, 52, 86)', look.背景);
+  chk('深色气泡自动改用浅色文字', look.文字 === 'rgb(242, 242, 242)', look.文字);
+  chk('外观设置被持久化', look.存下的圆角 === 18, look.存下的圆角);
+
+  const reset = await page.evaluate(async () => {
+    document.getElementById('btn-look-reset').click();
+    await new Promise(x => setTimeout(x, 300));
+    const st = document.documentElement.style;
+    return { 圆角: Math.round(parseFloat(getComputedStyle(document.querySelector('#msgs .bub')).borderTopLeftRadius)), 内联覆盖: st.getPropertyValue('--bub-me') };
+  });
+  chk('「恢复默认」还原圆角与颜色', reset.圆角 === 6 && reset.内联覆盖 === '', JSON.stringify(reset));
+
+  const stamp = await page.evaluate(async () => {
+    const c = document.getElementById('set-stamp'); c.checked = true; c.dispatchEvent(new Event('change'));
+    await new Promise(x => setTimeout(x, 500));
+    const all = [...document.querySelectorAll('#msgs .tm')].map(e => e.textContent);
+    return { 条数: all.length, 首条: all[0] || '', 全为完整时间: all.length > 0 && all.every(t => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t)),
+             悬浮提示: (document.querySelector('#msgs .tm') || {}).getAttribute ? document.querySelector('#msgs .tm').getAttribute('title') : '' };
+  });
+  chk('精确时间戳开关对每条消息生效', stamp.全为完整时间, JSON.stringify(stamp));
+
+  const avName = await page.evaluate(() => { const el = document.querySelector('#msgs .av'); return el ? el.dataset.name : null; });
+  if (avName) {
+    const av = await page.evaluate(async (name) => {
+      const sel = document.getElementById('set-avatar-who');
+      sel.value = name; sel.dispatchEvent(new Event('change'));
+      const cv = document.createElement('canvas'); cv.width = 4; cv.height = 4;
+      cv.getContext('2d').fillRect(0, 0, 4, 4);
+      const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+      const dt = new DataTransfer(); dt.items.add(new File([blob], 'a.png', { type: 'image/png' }));
+      const inp = document.getElementById('f-avatar'); inp.files = dt.files;
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise(x => setTimeout(x, 900));
+      return { 已存: !!window.__viewer.S.avatars[name], 是PNG: String(window.__viewer.S.avatars[name] || '').startsWith('data:image/png'),
+               聊天里图片数: document.querySelectorAll('#msgs .av img').length, 选中: sel.value };
+    }, avName);
+    chk('绑定自定义头像后聊天里换成图片', av.已存 && av.是PNG && av.聊天里图片数 > 0, JSON.stringify(av));
+
+    const avc = await page.evaluate(async (name) => {
+      document.getElementById('btn-avatar-clear').click();
+      await new Promise(x => setTimeout(x, 600));
+      return { 已存: !!window.__viewer.S.avatars[name], 聊天里图片数: document.querySelectorAll('#msgs .av img').length };
+    }, avName);
+    chk('清除头像后回到首字方块', !avc.已存 && avc.聊天里图片数 === 0, JSON.stringify(avc));
+  } else chk('绑定自定义头像后聊天里换成图片', false, '没找到可绑定的头像元素');
+
+  // 关掉时间戳，避免影响后面的截图
+  await page.evaluate(() => { const c = document.getElementById('set-stamp'); c.checked = false; c.dispatchEvent(new Event('change')); });
+  await C.sleep(300);
 
   // ---------- 7. 设置面板 ----------
   await page.evaluate(() => document.getElementById('btn-set').click());
