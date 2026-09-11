@@ -1,0 +1,21 @@
+# ---- 私有数据：你的真实聊天记录不要提交 ----
+# 查看器导出的数据包（就是聊天原文）
+chat_data.json
+chat_data*.json
+
+# 测试截图（画面里就是真实聊天内容）
+dev/screenshots/
+*.png
+
+# ---- 依赖与构建产物 ----
+node_modules/
+
+# ---- 系统 / 编辑器杂物 ----
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# 说明：sample_data/ 是 make_sample.js 生成的虚构数据，要提交，别加进来。

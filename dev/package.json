@@ -1,0 +1,17 @@
+{
+  "name": "chat-viewer-dev",
+  "version": "1.0.0",
+  "private": true,
+  "description": "用真 Chrome 驱动 chat_viewer.html 的自动化验证：解析一致性、布局、交互、性能",
+  "scripts": {
+    "test": "node _verify_parse.js && node _verify_ui.js && node _verify_pkg.js",
+    "test:full": "node --max-old-space-size=4096 _verify_full.js",
+    "sample": "node make_sample.js",
+    "stats": "node _count.js",
+    "build": "node _build_pkg.js",
+    "parse": "node _parse.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

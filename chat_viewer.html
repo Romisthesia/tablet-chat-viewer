@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>聊天记录查看器</title>
+<style>
+:root{
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", Roboto, sans-serif;
+  --side-bg:#ededed; --side-hover:#e3e3e3; --side-sel:#d5d5d5; --side-bd:#d9d9d9;
+  --chat-bg:#f5f5f5; --bub-other:#ffffff; --bub-me:#95ec69; --txt:#191919; --txt-dim:#9a9a9a;
+  --hd-bg:#ededed; --card:#ffffff; --accent:#07c160; --shadow:0 1px 3px rgba(0,0,0,.09);
+  --img-ph:#e6e6e6; --mark:#ffe58a;
+}
+html[data-theme="dark"]{
+  --side-bg:#2b2b2b; --side-hover:#383838; --side-sel:#454545; --side-bd:#1e1e1e;
+  --chat-bg:#191919; --bub-other:#2c2c2c; --bub-me:#3eb575; --txt:#d6d6d6; --txt-dim:#8a8a8a;
+  --hd-bg:#232323; --card:#232323; --accent:#3eb575; --shadow:0 1px 3px rgba(0,0,0,.4);
+  --img-ph:#333333; --mark:#7a6420;
+}
+html[data-theme="dark"] .bub.me{color:#0d0d0d}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:var(--font);font-size:14px;color:var(--txt);background:var(--chat-bg);overflow:hidden}
+#app{display:flex;height:100vh;width:100vw}
+button{font-family:inherit;font-size:13px;cursor:pointer;border:1px solid transparent;border-radius:6px;background:var(--card);color:var(--txt);padding:6px 12px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.primary:hover{opacity:.9}
+button.ghost{background:transparent;border-color:var(--side-bd)}
+button:disabled{opacity:.45;cursor:default}
+
+/* ---------- 导入页 ---------- */
+#intro{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--chat-bg);z-index:40;padding:20px}
+#intro.hide{display:none}
+.card{background:var(--card);border-radius:14px;box-shadow:0 6px 30px rgba(0,0,0,.10);padding:28px 30px;max-width:620px;width:100%}
+.card h1{margin:0 0 6px;font-size:21px}
+.card .sub{color:var(--txt-dim);font-size:13px;margin-bottom:18px;line-height:1.7}
+.path{display:inline-block;background:var(--side-bg);padding:2px 7px;border-radius:5px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.hint{font-size:12px;color:var(--txt-dim);line-height:1.8;margin-top:14px;border-top:1px solid var(--side-bd);padding-top:14px}
+#bar{margin-top:16px;display:none}
+#bar.on{display:block}
+#bar .track{height:7px;border-radius:4px;background:var(--side-bg);overflow:hidden}
+#bar .fill{height:100%;width:0;background:var(--accent);transition:width .15s}
+#status{font-size:12px;color:var(--txt-dim);margin-top:8px;min-height:16px;white-space:pre-wrap;max-height:130px;overflow:auto;font-family:ui-monospace,Consolas,monospace}
+.dropmask{position:fixed;inset:0;border:3px dashed var(--accent);background:rgba(7,193,96,.08);display:none;align-items:center;justify-content:center;font-size:19px;z-index:60}
+.dropmask.on{display:flex}
+
+/* ---------- 侧栏 ---------- */
+#side{width:300px;min-width:220px;background:var(--side-bg);border-right:1px solid var(--side-bd);display:flex;flex-direction:column}
+#side-top{display:flex;align-items:center;gap:7px;padding:10px}
+#side-top .title{font-weight:600;font-size:14px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;font-size:15px}
+#searchwrap{padding:0 10px 9px}
+#q{width:100%;padding:7px 11px;border-radius:7px;border:1px solid transparent;background:var(--card);color:var(--txt);font-family:inherit;font-size:13px;outline:none}
+#q:focus{border-color:var(--accent)}
+#tabs{display:flex;gap:4px;padding:0 10px 8px;font-size:12px}
+#tabs .tab{padding:3px 9px;border-radius:11px;background:transparent;color:var(--txt-dim)}
+#tabs .tab.on{background:var(--accent);color:#fff;font-weight:500}
+#list{flex:1;overflow-y:auto;padding-bottom:10px}
+.row{display:flex;gap:10px;padding:9px 12px;cursor:pointer;align-items:center}
+.row:hover{background:var(--side-hover)}
+.row.on{background:var(--side-sel)}
+.row .av{width:38px;height:38px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500}
+.row .mid{flex:1;min-width:0}
+.row .n1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.row .nm{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tm{font-size:11px;color:var(--txt-dim);flex:none}
+.row .n2{font-size:12px;color:var(--txt-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.tag{font-size:10px;padding:0 4px;border-radius:3px;border:1px solid var(--side-bd);color:var(--txt-dim);vertical-align:1px;margin-right:4px}
+#list .empty{color:var(--txt-dim);text-align:center;padding:26px 12px;font-size:12.5px;line-height:1.9}
+
+/* ---------- 聊天区 ---------- */
+#main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--chat-bg)}
+#hd{height:54px;flex:none;background:var(--hd-bg);border-bottom:1px solid var(--side-bd);display:flex;align-items:center;gap:10px;padding:0 16px}
+#hd .h1{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hd .meta{font-size:11.5px;color:var(--txt-dim);white-space:nowrap}
+#hd .sp{flex:1}
+#hd .tools{display:flex;gap:6px}
+#scroll{flex:1;overflow-y:auto;padding:14px 0 20px;scroll-behavior:auto}
+#loadmore{text-align:center;padding:2px 0 12px}
+#loadmore button{font-size:12px;padding:4px 12px;border-radius:14px;background:transparent;border-color:var(--side-bd);color:var(--txt-dim)}
+#msgs{padding:0 18px;max-width:1000px;margin:0 auto}
+.day{text-align:center;margin:16px 0 12px}
+.day span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
+.sys{text-align:center;margin:8px 0}
+.sys span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
+.m{display:flex;gap:9px;margin-bottom:6px;align-items:flex-start}
+.m.me{flex-direction:row-reverse}
+.m .av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13.5px;cursor:default;user-select:none}
+.m .col{max-width:min(660px,72%);display:flex;flex-direction:column;min-width:0}
+.m.me .col{align-items:flex-end}
+.m .who{font-size:11.5px;color:var(--txt-dim);margin:0 2px 3px}
+.bub{position:relative;background:var(--bub-other);border-radius:6px;padding:8px 12px;line-height:1.62;word-break:break-word;white-space:pre-wrap;box-shadow:var(--shadow);font-size:14px}
+.m.me .bub{background:var(--bub-me);color:#191919}
+.bub.imgp{padding:4px;background:transparent;box-shadow:none}
+.bub .tm{font-size:10.5px;color:var(--txt-dim);margin-left:8px;white-space:nowrap;user-select:none}
+.m.me .bub .tm{color:rgba(0,0,0,.35)}
+html[data-theme="dark"] .bub .tm{color:#8a8a8a}
+.bub .hid{display:none}
+.bub:hover .hid{display:inline}
+.imgwrap{display:block;position:relative;border-radius:5px;overflow:hidden;background:var(--img-ph);cursor:zoom-in;line-height:0}
+.imgwrap img{display:block;max-width:280px;max-height:280px;width:auto;height:auto;border-radius:5px}
+.imgwrap .bad{width:200px;height:110px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--txt-dim);font-size:12px;background:var(--card);border-radius:5px;padding:8px;text-align:center;line-height:1.5}
+.imgwrap .bad a{color:var(--accent);font-size:11px}
+.note-tag{position:absolute;left:0;top:0;background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;padding:1px 6px;border-bottom-right-radius:6px}
+mark{background:var(--mark);color:inherit;border-radius:2px}
+.m.flash .bub{animation:fl 1.5s ease-out}
+@keyframes fl{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:var(--shadow)}}
+#jumpbar{position:absolute;right:26px;bottom:20px;display:none;z-index:5}
+#jumpbar.on{display:block}
+#jumpbar button{border-radius:20px;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+#placeholder{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--txt-dim);font-size:13px}
+
+/* 搜索结果 */
+#hits{padding:0 18px;max-width:1000px;margin:0 auto}
+.hit{padding:9px 12px;border-radius:8px;background:var(--card);margin-bottom:7px;cursor:pointer;box-shadow:var(--shadow)}
+.hit:hover{border-left:3px solid var(--accent);padding-left:9px}
+.hit .h-top{font-size:11.5px;color:var(--txt-dim);display:flex;gap:8px;margin-bottom:3px}
+.hit .h-body{font-size:13px;line-height:1.6;word-break:break-word;max-height:60px;overflow:hidden}
+.hitinfo{padding:8px 18px 4px;color:var(--txt-dim);font-size:12px;max-width:1000px;margin:0 auto}
+
+/* 灯箱 */
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;z-index:80;flex-direction:column}
+#lb.on{display:flex}
+#lb .lb-top{height:46px;display:flex;align-items:center;gap:10px;padding:0 14px;color:#ddd;font-size:12.5px;flex:none}
+#lb .lb-top .sp{flex:1}
+#lb .lb-top button{background:rgba(255,255,255,.12);color:#eee;border-color:transparent}
+#lb .lb-body{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#lb img{max-width:96%;max-height:92%;cursor:zoom-in;transition:transform .12s}
+#lb img.zoom2{cursor:zoom-out}
+
+/* 设置面板 */
+#dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:70}
+#dlg.on{display:flex}
+#dlg .card{max-width:460px}
+#dlg label{display:block;font-size:12.5px;color:var(--txt-dim);margin:14px 0 6px}
+#dlg select,#dlg input{width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--side-bd);background:var(--card);color:var(--txt);font-family:inherit;font-size:13px}
+#dlg .row2{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(128,128,128,.35);border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div id="side-top">
+      <div class="title" id="side-title">聊天记录</div>
+      <button class="iconbtn ghost" id="btn-theme" title="切换深色/浅色">◐</button>
+      <button class="iconbtn ghost" id="btn-set" title="设置">⚙</button>
+      <button class="iconbtn ghost" id="btn-re" title="重新导入">⇱</button>
+    </div>
+    <div id="searchwrap"><input id="q" placeholder="搜索会话 / 消息…" autocomplete="off"></div>
+    <div id="tabs">
+      <div class="tab on" data-tab="chat">会话</div>
+      <div class="tab" data-tab="msg">消息全文</div>
+      <div class="tab" data-tab="star">★ 收藏</div>
+    </div>
+    <div id="list"></div>
+  </aside>
+  <main id="main">
+    <div id="hd">
+      <div class="h1" id="hd-name">未导入</div>
+      <div class="meta" id="hd-meta"></div>
+      <div class="sp"></div>
+      <div class="tools" id="hd-tools"></div>
+    </div>
+    <div id="scroll"><div id="loadmore"></div><div id="msgs"></div><div id="hits"></div></div>
+    <div id="jumpbar"><button id="btn-new" class="primary">↓ 回到最新</button></div>
+  </main>
+</div>
+
+<div id="intro">
+  <div class="card">
+    <h1>聊天记录查看器</h1>
+    <div class="sub" id="intro-sub">导入平板导出的 HTML 聊天记录，按聊天软件的样子查看。</div>
+    <div class="btns">
+      <button class="primary" id="btn-dir">选择记录文件夹</button>
+      <button id="btn-files">选择 HTML 文件（可多选）</button>
+      <button id="btn-pkg">导入数据包 .json</button>
+    </div>
+    <div id="bar"><div class="track"><div class="fill" id="fill"></div></div><div id="status"></div></div>
+    <div class="hint">
+      点「选择记录文件夹」，把导出的一堆 <span class="path">.html</span> 所在文件夹整个选进来（也可以直接拖进窗口）。<br>
+      图片按需从原平台图床加载（需联网），文字记录完全离线。<br>
+      解析完成后可在设置里「导出数据包」，下次用 <span class="path">.json</span> 一键打开，不用再选文件夹。
+    </div>
+  </div>
+</div>
+
+<div class="dropmask" id="dropmask">松开即可导入</div>
+
+<div id="lb">
+  <div class="lb-top"><span id="lb-info"></span><span class="sp"></span>
+    <button id="lb-open">新窗口打开</button><button id="lb-copy">复制链接</button><button id="lb-close">关闭 (Esc)</button>
+  </div>
+  <div class="lb-body"><img id="lb-img" alt=""></div>
+</div>
+
+<div id="dlg">
+  <div class="card">
+    <h1 style="font-size:17px">设置</h1>
+    <label>我（自己的昵称）— 决定消息左右分布</label>
+    <select id="set-me"></select>
+    <label>会话排序</label>
+    <select id="set-sort">
+      <option value="time">按最近消息时间（倒序）</option>
+      <option value="name">按会话名称</option>
+      <option value="count">按消息条数（倒序）</option>
+    </select>
+    <label>外观</label>
+    <select id="set-theme"><option value="light">浅色（微信白）</option><option value="dark">深色</option></select>
+    <label>图片显示</label>
+    <select id="set-img"><option value="on">显示图片（联网加载）</option><option value="off">只看占位框（省流量）</option></select>
+    <div class="row2">
+      <button id="btn-export-pkg">导出数据包</button>
+      <button id="btn-export-all">导出全部会话 HTML</button>
+      <button class="primary" id="btn-dlg-ok">关闭</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="f-dir" webkitdirectory directory multiple accept=".html,.htm" style="display:none">
+<input type="file" id="f-files" multiple accept=".html,.htm" style="display:none">
+<input type="file" id="f-pkg" accept=".json" style="display:none">
+
+<script>
+'use strict';
+/* ============================= 状态 ============================= */
+const S = {
+  sessions: [],          // {id,name,kind,msgs[],n,first,last,senders:{}}
+  meId: null, meName: '',
+  cur: null,             // 当前会话
+  startIdx: 0,           // 已渲染起始下标
+  q: '', tab: 'chat',
+  theme: 'light', showImg: true, sort: 'time',
+  hits: [],              // 全文搜索结果
+  win: 250,              // 每批渲染条数
+  importing: false       // 用户已开始手动导入（用于阻止开机缓存恢复覆盖）
+};
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const DAY = 864e5;
+
+/* ==================== 1. 解析导出文件 ==================== */
+/* 定位 `var array = [ ... ]` 的真正结尾：字符串/转义/括号感知，避免正文里的 "];" 造成截断 */
+function extractArrayText(raw) {
+  const key = 'var array = ';
+  const k = raw.indexOf(key);
+  if (k < 0) return null;
+  let i = k + key.length;
+  while (i < raw.length && raw[i] !== '[') i++;
+  if (i >= raw.length) return null;
+  const start = i;
+  let depth = 0, inStr = false, esc = false, quote = '';
+  for (; i < raw.length; i++) {
+    const c = raw[i];
+    if (esc) { esc = false; continue; }
+    if (c === '\\') { esc = true; continue; }
+    if (inStr) { if (c === quote) inStr = false; continue; }
+    if (c === "'" || c === '"') { inStr = true; quote = c; continue; }
+    if (c === '[' || c === '{') depth++;
+    else if (c === ']' || c === '}') { depth--; if (depth === 0 && c === ']') { i++; break; } }
+  }
+  return raw.slice(start, i);
+}
+/* 兜底：逐个顶层对象解析，坏掉的单条跳过 */
+function chunkParse(text) {
+  const out = [];
+  let depth = 0, start = -1, inStr = false, esc = false, quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (esc) { esc = false; continue; }
+    if (c === '\\') { esc = true; continue; }
+    if (inStr) { if (c === quote) inStr = false; continue; }
+    if (c === "'" || c === '"') { inStr = true; quote = c; continue; }
+    if (c === '{') { if (depth === 0) start = i; depth++; }
+    else if (c === '}') { depth--; if (depth === 0 && start >= 0) { try { out.push(new Function('return ' + text.slice(start, i + 1))()); } catch (e) { } start = -1; } }
+  }
+  return out;
+}
+function parseRawText(raw) {
+  const txt = extractArrayText(raw);
+  if (!txt) return null;
+  try {
+    const arr = new Function('return ' + txt)();
+    if (Array.isArray(arr)) return { msgs: arr, mode: 'fast' };
+  } catch (e) { }
+  const arr = chunkParse(txt);
+  return { msgs: arr, mode: arr.length ? 'tolerant' : 'fail' };
+}
+/* 消息归一化：图片/笔记把 content 里的 JSON 取出 url */
+function normMsg(m) {
+  const o = {
+    ts: Number(m.createdTime) || (m.datetime ? Date.parse(String(m.datetime).replace(/-/g, '/')) : 0) || 0,
+    fromId: m.fromId, fromName: m.fromName || '', t: 'T', text: '', url: '', w: 0, h: 0, at: m.datetime || ''
+  };
+  const ty = String(m.type || '');
+  if (ty.indexOf('TEXT') >= 0) { o.t = 'T'; o.text = String(m.content == null ? '' : m.content); }
+  else if (ty.indexOf('IMAGE') >= 0 || ty.indexOf('NOTE') >= 0) {
+    o.t = ty.indexOf('NOTE') >= 0 ? 'N' : 'I';
+    try {
+      const d = JSON.parse(m.content);
+      o.url = d.serverimg_url || '';
+      o.w = +d.img_width || 0; o.h = +d.img_height || 0;
+      o.text = d.caption || '';
+    } catch (e) { o.url = ''; }
+  } else { o.t = 'X'; o.text = ty + ' ' + (typeof m.content === 'string' ? m.content : ''); }
+  return o;
+}
+/* 把一批 {name,text} 合成会话表 */
+function buildSessions(files, onProgress) {
+  const map = new Map();
+  let ok = 0, bad = 0; const badList = [];
+  for (const f of files) {
+    const name = String(f.name).replace(/\.html?$/i, '');
+    let parsed = null;
+    try { parsed = parseRawText(f.text); } catch (e) { parsed = null; }
+    if (!parsed || !parsed.msgs.length) { bad++; badList.push(name); continue; }
+    const sid = name;
+    const msgs = parsed.msgs.map(normMsg).filter(x => x.ts || x.text || x.url);
+    msgs.sort((a, b) => a.ts - b.ts);            // 导出顺序是倒序，这里正序
+    if (!msgs.length) { bad++; badList.push(name); continue; }
+    const senders = {};
+    for (const m of msgs) senders[m.fromName] = (senders[m.fromName] || 0) + 1;
+    const sess = {
+      id: sid, name, kind: (parsed.msgs[0].sessionType || (String(parsed.msgs[0].type || '').indexOf('GROUP') === 0 ? 'GROUP' : 'SINGLE')),
+      sid: parsed.msgs[0].sessionId, msgs, n: msgs.length,
+      first: msgs[0].ts, last: msgs[msgs.length - 1].ts, senders, mode: parsed.mode
+    };
+    const old = map.get(sid);
+    if (old) {                       // 同名文件合并去重
+      const seen = new Set(old.msgs.map(m => m.ts + '|' + m.fromName + '|' + m.text.slice(0, 40)));
+      for (const m of msgs) { const k = m.ts + '|' + m.fromName + '|' + m.text.slice(0, 40); if (!seen.has(k)) { old.msgs.push(m); seen.add(k); } }
+      old.msgs.sort((a, b) => a.ts - b.ts);
+      old.n = old.msgs.length; old.first = old.msgs[0].ts; old.last = old.msgs[old.msgs.length - 1].ts;
+      for (const k in senders) old.senders[k] = (old.senders[k] || 0) + senders[k];
+    } else map.set(sid, sess);
+    ok++;
+    if (onProgress && ok % 3 === 0) onProgress(ok, files.length, name);
+  }
+  return { sessions: [...map.values()], ok, bad, badList };
+}
+/* 推断“我”：私聊里 fromId != sessionId 的那一方 */
+function computeMe(sessions) {
+  const cand = {};
+  for (const s of sessions) {
+    if (s.kind !== 'SINGLE') continue;
+    for (const m of s.msgs) {
+      if (m.fromId === undefined || m.fromId === null) continue;
+      if (m.fromId === s.sid) continue;                 // 对方
+      cand[m.fromId] = (cand[m.fromId] || 0) + 1;
+    }
+  }
+  let id = null, best = -1;
+  for (const k in cand) if (cand[k] > best) { best = cand[k]; id = k; }
+  if (id === null) return null;
+  const nm = {};
+  for (const s of sessions) for (const m of s.msgs) if (String(m.fromId) === String(id)) nm[m.fromName] = (nm[m.fromName] || 0) + 1;
+  const name = Object.keys(nm).sort((a, b) => nm[b] - nm[a])[0] || '';
+  return { id, name, evidence: best };
+}
+
+/* ==================== 2. 工具 ==================== */
+const pad = n => (n < 10 ? '0' + n : '' + n);
+function fmtTime(ts) { const d = new Date(ts); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+function fmtHM(ts) { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+function fmtDay(ts) { const d = new Date(ts); return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + '日一二三四五六'[d.getDay()] ; }
+function sameDay(a, b) { const x = new Date(a), y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); }
+function fmtListTime(ts) {
+  const n = Date.now(), d = new Date(ts);
+  if (sameDay(ts, n)) return pad(d.getHours()) + ':' + pad(d.getMinutes());
+  if (sameDay(ts, n - DAY)) return '昨天';
+  if (d.getFullYear() === new Date(n).getFullYear()) return (d.getMonth() + 1) + '/' + d.getDate();
+  return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+}
+const PAL = ['#e1604d', '#d4843c', '#c2a13a', '#6aa84f', '#3f9e8e', '#4a86c5', '#6f6fc0', '#a05fa5', '#c2577f', '#7a8b99'];
+/* 用记录里的原始宽高预先算出显示尺寸，避免图片加载完把版面撑开（跳转定位才准） */
+function imgBox(w, h) {
+  const M = 280;
+  if (!w || !h) return { w: 0, h: 0, known: false };
+  const k = Math.min(M / w, M / h, 1);
+  return { w: Math.max(40, Math.round(w * k)), h: Math.max(30, Math.round(h * k)), known: true };
+}
+function colorOf(name) { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return PAL[h % PAL.length]; }
+function initialOf(name) { const s = String(name || '?').trim(); return s ? s[0] : '?'; }
+function avatar(name, size) {
+  const sz = size || 34;
+  return '<div class="av" style="background:' + colorOf(name) + ';width:' + sz + 'px;height:' + sz + 'px;border-radius:' + (sz > 36 ? 5 : 4) + 'px;font-size:' + Math.round(sz * .42) + 'px">' + esc(initialOf(name)) + '</div>';
+}
+function hl(text, q) {
+  let h = esc(text);
+  if (!q) return h;
+  const lq = q.toLowerCase(), lt = text.toLowerCase();
+  let out = '', i = 0;
+  while (true) {
+    const p = lt.indexOf(lq, i);
+    if (p < 0) { out += esc(text.slice(i)); break; }
+    out += esc(text.slice(i, p)) + '<mark>' + esc(text.slice(p, p + q.length)) + '</mark>';
+    i = p + q.length;
+  }
+  return out;
+}
+function preview(s) {
+  const m = s.msgs[s.msgs.length - 1]; if (!m) return '';
+  const who = s.kind === 'GROUP' ? (m.fromName || '') + '：' : '';
+  const body = m.t === 'T' ? m.text.replace(/\s+/g, ' ').slice(0, 40) : (m.t === 'N' ? '[笔记]' : '[图片]');
+  return who + body;
+}
+function isImgOn() { return S.showImg; }
+
+/* ==================== 3. 侧栏 ==================== */
+function sortedSessions() {
+  const a = S.sessions.slice();
+  if (S.sort === 'name') a.sort((x, y) => x.name.localeCompare(y.name, 'zh'));
+  else if (S.sort === 'count') a.sort((x, y) => y.n - x.n);
+  else a.sort((x, y) => y.last - x.last);
+  return a;
+}
+function renderSidebar() {
+  const q = S.q.trim().toLowerCase();
+  let html = '';
+  if (S.tab === 'star') {
+    html = '<div class="empty">还没有收藏。<br>在消息上点 ☆ 即可加入收藏（存在本机浏览器里）。</div>';
+  } else {
+    const list = sortedSessions().filter(s => !q || s.name.toLowerCase().includes(q));
+    if (!list.length) html = '<div class="empty">没有匹配的会话</div>';
+    for (const s of list) {
+      html += '<div class="row' + (S.cur && S.cur.id === s.id ? ' on' : '') + '" data-id="' + esc(s.id) + '">' +
+        avatar(s.name, 38) +
+        '<div class="mid"><div class="n1"><div class="nm">' + esc(s.name) + '</div><div class="tm">' + fmtListTime(s.last) + '</div></div>' +
+        '<div class="n2">' + (s.kind === 'GROUP' ? '<span class="tag">群</span>' : '<span class="tag">私</span>') +
+        esc(preview(s)).slice(0, 90) + ' · ' + s.n + '条</div></div></div>';
+    }
+  }
+  $('list').innerHTML = html;
+  const st = $('side-title');
+  st.textContent = S.sessions.length ? '共 ' + S.sessions.length + ' 个会话 / ' + S.sessions.reduce((a, s) => a + s.n, 0).toLocaleString() + ' 条消息' : '聊天记录';
+}
+$('list').addEventListener('click', e => { const r = e.target.closest('.row'); if (r) openSession(r.dataset.id); });
+$('tabs').addEventListener('click', e => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  [...document.querySelectorAll('#tabs .tab')].forEach(x => x.classList.toggle('on', x === t));
+  S.tab = t.dataset.tab;
+  if (S.tab === 'msg' && S.q.trim()) doSearch(S.q.trim()); else { renderSidebar(); renderMain(); }
+});
+$('q').addEventListener('input', () => {
+  S.q = $('q').value;
+  clearTimeout(window.__qt);
+  window.__qt = setTimeout(() => { if (S.tab === 'msg') { doSearch(S.q.trim()); } else { renderSidebar(); autoOpen(); } }, 220);
+});
+/* 搜索会话名时若只剩一个会话，自动打开 */
+function autoOpen() {
+  const q = S.q.trim().toLowerCase();
+  const list = sortedSessions().filter(s => !q || s.name.toLowerCase().includes(q));
+  if (!S.cur && list.length) openSession(list[0].id);
+}
+
+/* ==================== 4. 渲染聊天 ==================== */
+function openSession(id) {
+  const s = S.sessions.find(x => x.id === id); if (!s) return;
+  S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.hits = []; S.hl = ''; S.tab = 'chat';
+  [...document.querySelectorAll('#tabs .tab')].forEach(x => x.classList.toggle('on', x.dataset.tab === 'chat'));
+  renderSidebar(); renderMain(); renderMsgs(false);
+  requestAnimationFrame(() => { const el = $('scroll'); el.scrollTop = el.scrollHeight; });
+}
+function renderMain() {
+  const s = S.cur;
+  const hdName = $('hd-name'), hdMeta = $('hd-meta'), tools = $('hd-tools');
+  if (!s) {
+    hdName.textContent = '未导入'; hdMeta.textContent = ''; tools.innerHTML = '';
+    $('msgs').innerHTML = ''; $('hits').innerHTML = '';
+    $('scroll').innerHTML = '<div id="placeholder">左侧选择一个会话开始查看</div>'; return;
+  }
+  if (!$('scroll').querySelector('#msgs')) {
+    $('scroll').innerHTML = '<div id="loadmore"></div><div id="msgs"></div><div id="hits"></div>';
+  }
+  $('hits').innerHTML = '';
+  hdName.textContent = s.name;
+  hdMeta.textContent = (s.kind === 'GROUP' ? '群聊' : '私聊') + ' · ' + s.n.toLocaleString() + ' 条 · ' +
+    new Date(s.first).toLocaleDateString('zh-CN') + ' ~ ' + new Date(s.last).toLocaleDateString('zh-CN') +
+    ' · 发言人 ' + Object.keys(s.senders).length;
+  tools.innerHTML = '<button class="ghost" id="btn-jump">跳转日期</button>' +
+    '<button class="ghost" id="btn-exp1">导出本会话</button>' +
+    '<button class="ghost" id="btn-top">回到最新</button>';
+  $('btn-jump').onclick = jumpDate;
+  $('btn-exp1').onclick = () => exportSessionHTML(s);
+  $('btn-top').onclick = () => { const el = $('scroll'); el.scrollTop = el.scrollHeight; };
+}
+function msgHTML(m, idx, q) {
+  const me = S.meId !== null && String(m.fromId) === String(S.meId);
+  const showWho = !me && S.cur.kind === 'GROUP';
+  let body;
+  if (m.t === 'T') {
+    let txt = hl(m.text, q);
+    body = '<div class="bub" data-i="' + idx + '">' + txt + '</div>';
+  } else if (m.t === 'I' || m.t === 'N') {
+    const label = m.t === 'N' ? '<div class="note-tag">笔记</div>' : '';
+    const bx = imgBox(m.w, m.h);
+    const sizeAttr = bx.known ? ' width="' + bx.w + '" height="' + bx.h + '" style="width:' + bx.w + 'px;height:' + bx.h + 'px"' : ' style="max-width:280px;max-height:280px"';
+    const inner = (m.url && isImgOn())
+      ? '<img loading="lazy" decoding="async"' + sizeAttr + ' src="' + esc(m.url) + '" alt="" onerror="imgErr(this)">'
+      : '<div class="bad">' + (m.url ? '图片已隐藏' : '无图床链接') + (m.url ? '<a href="' + esc(m.url) + '" target="_blank" rel="noreferrer">打开原图</a>' : '') + '</div>';
+    body = '<div class="bub imgp" data-i="' + idx + '"><div class="imgwrap" data-url="' + esc(m.url) + '" data-w="' + m.w + '" data-h="' + m.h + '" title="点击查看大图">' + label + inner + '</div></div>';
+  } else {
+    body = '<div class="bub" data-i="' + idx + '">[不支持的消息类型] ' + esc(m.text.slice(0, 200)) + '</div>';
+  }
+  const tm = '<span class="tm">' + fmtHM(m.ts) + '</span>';
+  return '<div class="m' + (me ? ' me' : '') + '" id="m-' + idx + '">' + avatar(m.fromName || (me ? S.meName : ''), 34) +
+    '<div class="col">' + (showWho ? '<div class="who">' + esc(m.fromName) + '</div>' : '') +
+    '<div style="display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '') + '">' + body + tm + '</div></div></div>';
+}
+function renderMsgs(preserve) {
+  const s = S.cur; if (!s) return;
+  const sc = $('scroll'), msgs = $('msgs');
+  const prevH = sc.scrollHeight, prevTop = sc.scrollTop;
+  const q = S.hl || '';
+  let html = '', lastTs = 0;
+  for (let i = S.startIdx; i < s.n; i++) {
+    const m = s.msgs[i];
+    if (i === S.startIdx || !sameDay(lastTs, m.ts)) html += '<div class="day"><span>' + fmtDay(m.ts) + '</span></div>';
+    else if (m.ts - lastTs > 5 * 60000) html += '<div class="sys"><span>' + fmtHM(m.ts) + '</span></div>';
+    html += msgHTML(m, i, q);
+    lastTs = m.ts;
+  }
+  msgs.innerHTML = html;
+  if (S.startIdx > 0) {
+    $('loadmore').innerHTML =
+      '<button id="btn-more">载入更早 ' + Math.min(S.win, S.startIdx) + ' 条</button>' +
+      (S.startIdx > S.win ? ' <button id="btn-more2">再往前 2000 条</button>' : '') +
+      '<div style="font-size:11px;color:var(--txt-dim);margin-top:5px">前面还有 ' + S.startIdx.toLocaleString() + ' 条</div>';
+  } else {
+    $('loadmore').innerHTML = '<div style="font-size:11.5px;color:var(--txt-dim);padding:4px 0 10px">— 已经是全部记录 —</div>';
+  }
+  const b = $('btn-more'); if (b) b.onclick = loadOlder;
+  const b2 = $('btn-more2'); if (b2) b2.onclick = () => { S.startIdx = Math.max(0, S.startIdx - 2000); renderMsgs(true); };
+  if (preserve) sc.scrollTop = prevTop + (sc.scrollHeight - prevH);
+}
+function loadOlder() {
+  if (S.startIdx <= 0) return;
+  S.startIdx = Math.max(0, S.startIdx - S.win);
+  renderMsgs(true);
+}
+function scrollToIdx(i, flash) {
+  const s = S.cur;
+  if (i < S.startIdx || i >= s.n) { S.startIdx = Math.max(0, i - 30); renderMsgs(false); }
+  const doScroll = () => {
+    const el = $('m-' + i); if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    $('jumpbar').classList.toggle('on', $('scroll').scrollHeight - $('scroll').scrollTop - $('scroll').clientHeight > 400);
+  };
+  requestAnimationFrame(doScroll);
+  setTimeout(doScroll, 250);            // 图片/字体加载后校正一次
+  if (flash) setTimeout(() => { const el = $('m-' + i); if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1700); } }, 60);
+}
+/* 滚动到顶自动载入更早 */
+$('scroll').addEventListener('scroll', () => {
+  const sc = $('scroll');
+  $('jumpbar').classList.toggle('on', sc.scrollHeight - sc.scrollTop - sc.clientHeight > 400 && !!S.cur);
+  if (sc.scrollTop < 40 && S.cur && S.startIdx > 0 && !window.__loading) {
+    window.__loading = true; loadOlder(); setTimeout(() => window.__loading = false, 120);
+  }
+});
+$('btn-new').onclick = () => { const sc = $('scroll'); sc.scrollTop = sc.scrollHeight; };
+/* 点图放大 */
+$('msgs').addEventListener('click', e => {
+  const w = e.target.closest('.imgwrap'); if (!w) return;
+  if (w.dataset.url) openLB(w.dataset.url, w.dataset.w, w.dataset.h);
+});
+window.imgErr = function (img) {
+  const p = img.parentElement; if (!p) return;
+  const u = p.dataset.url || '';
+  p.innerHTML = '<div class="bad">图片加载失败（服务器上可能已删除）' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noreferrer">打开原图试试</a>' : '') + '</div>';
+};
+function jumpDate() {
+  const s = S.cur; if (!s) return;
+  const v = prompt('跳转到日期（格式 2024-09-01）：', new Date(s.last).toISOString().slice(0, 10));
+  if (!v) return;
+  const t = Date.parse(v.replace(/-/g, '/') + ' 00:00:00');
+  if (!t) { alert('日期格式不对'); return; }
+  let i = 0; while (i < s.n && s.msgs[i].ts < t) i++;
+  if (i >= s.n) { alert('该日期之后没有消息'); return; }
+  S.startIdx = Math.max(0, i - 30); renderMsgs(false); scrollToIdx(i, true);
+}
+
+/* ==================== 5. 全文搜索 ==================== */
+function doSearch(q) {
+  q = (q || '').trim();
+  $('hits').innerHTML = ''; $('msgs').innerHTML = ''; $('loadmore').innerHTML = '';
+  $('hd-name').textContent = '全文搜索：' + q; $('hd-meta').textContent = ''; $('hd-tools').innerHTML = '';
+  if (!q) { renderSidebar(); return; }
+  const lq = q.toLowerCase(), hits = [], CAP = 400;
+  const t0 = performance.now();
+  outer:
+  for (const s of sortedSessions()) {
+    for (let i = 0; i < s.msgs.length; i++) {
+      const m = s.msgs[i];
+      if (!m.text) continue;
+      if (m.text.toLowerCase().indexOf(lq) >= 0) {
+        hits.push({ s, i, m });
+        if (hits.length >= CAP) break outer;
+      }
+    }
+  }
+  S.hits = hits; S.lastQuery = q;
+  const ms = Math.round(performance.now() - t0);
+  let html = '<div class="hitinfo">找到 ' + hits.length + (hits.length >= CAP ? '+' : '') + ' 条（' + ms + 'ms）' +
+    (hits.length >= CAP ? '，只显示前 ' + CAP + ' 条，请补充关键词' : '') + '</div>';
+  for (const h of hits) {
+    html += '<div class="hit" data-id="' + esc(h.s.id) + '" data-i="' + h.i + '">' +
+      '<div class="h-top"><b>' + esc(h.s.name) + '</b><span>' + esc(h.m.fromName) + '</span><span>' + fmtTime(h.m.ts) + '</span></div>' +
+      '<div class="h-body">' + hl(h.m.text.slice(0, 300), q) + '</div></div>';
+  }
+  if (!hits.length) html = '<div class="hitinfo">没有找到包含「' + esc(q) + '」的消息</div>';
+  $('hits').innerHTML = html;
+}
+$('hits').addEventListener('click', e => {
+  const h = e.target.closest('.hit'); if (!h) return;
+  const q = S.lastQuery || '';
+  openSession(h.dataset.id);
+  S.hl = q;
+  renderMsgs(false);          // 目标可能本来就落在已渲染窗口内，必须重画一次高亮才生效
+  const meta = $('hd-meta');
+  if (meta) meta.textContent += '  ·  已高亮「' + q + '」';
+  scrollToIdx(+h.dataset.i, true);
+});
+
+/* ==================== 6. 导入 ==================== */
+function setBar(on, txt, pct) {
+  $('bar').classList.toggle('on', !!on);
+  if (txt !== undefined) $('status').textContent = txt;
+  if (pct !== undefined) $('fill').style.width = Math.round(pct * 100) + '%';
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function readFile(f) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsText(f, 'utf-8'); }); }
+
+async function ingestFiles(list) {
+  const arr = [...list].filter(f => /\.html?$/i.test(f.name));
+  if (!arr.length) { alert('没有选到 .html 文件'); return; }
+  S.importing = true;
+  setBar(true, '开始解析 ' + arr.length + ' 个文件…', 0);
+  await sleep(30);
+  const texts = [];
+  for (let i = 0; i < arr.length; i++) {
+    texts.push({ name: arr[i].name, text: await readFile(arr[i]) });
+    if (i % 2 === 0) { setBar(true, '读取 ' + (i + 1) + '/' + arr.length + '：' + arr[i].name, (i + 1) / arr.length * 0.6); await sleep(0); }
+  }
+  setBar(true, '解析消息…', 0.62);
+  await sleep(30);
+  const r = buildSessions(texts, (done, total, nm) => setBar(true, '解析 ' + done + '/' + total + '：' + nm, 0.62 + 0.36 * done / total));
+  finishImport(r);
+}
+function finishImport(r) {
+  if (!r.sessions.length) { setBar(true, '没有解析出任何消息，请确认选的是平板导出的聊天记录 HTML。', 1); return; }
+  S.sessions = r.sessions;
+  const me = computeMe(S.sessions);
+  if (me) { S.meId = me.id; S.meName = me.name; }
+  let total = 0, img = 0;
+  for (const s of S.sessions) { total += s.n; for (const m of s.msgs) if (m.t !== 'T') img++; }
+  const tol = r.sessions.filter(s => s.mode === 'tolerant').length;
+  setBar(true, '完成：' + r.sessions.length + ' 个会话，' + total.toLocaleString() + ' 条消息（含图片 ' + img.toLocaleString() + ' 条）' +
+    (r.bad ? '\n跳过 ' + r.bad + ' 个文件：' + r.badList.slice(0, 6).join('、') : '') +
+    (tol ? '\n其中 ' + tol + ' 个文件走了容错解析' : '') +
+    '\n我 = ' + S.meName + (S.meId !== null ? '（ID ' + S.meId + '）' : ''), 1);
+  setTimeout(() => { $('intro').classList.add('hide'); afterLoad(); }, 500);
+}
+function afterLoad() {
+  $('side-title').textContent = '';
+  renderSidebar();
+  const list = sortedSessions();
+  if (list.length) openSession(list[0].id);
+  saveCache();
+}
+
+/* ---- 输入入口 ---- */
+$('btn-dir').onclick = () => $('f-dir').click();
+$('btn-files').onclick = () => $('f-files').click();
+$('btn-pkg').onclick = () => $('f-pkg').click();
+$('f-dir').onchange = e => ingestFiles(e.target.files);
+$('f-files').onchange = e => ingestFiles(e.target.files);
+$('f-pkg').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  S.importing = true;
+  setBar(true, '读取数据包 ' + (f.size / 1048576).toFixed(1) + ' MB…', 0.2);
+  await sleep(30);
+  try {
+    const txt = await readFile(f);
+    setBar(true, '解析数据包…', 0.6); await sleep(30);
+    const d = JSON.parse(txt);
+    const sessions = d.sessions.map(s => {
+      const msgs = s.m.map(a => ({ ts: a[0], fromId: a[1], fromName: a[2], t: a[3], text: a[4] || '', url: a[5] || '', w: a[6] || 0, h: a[7] || 0, at: a[8] || fmtTime(a[0]) }));
+      const senders = {}; for (const m of msgs) senders[m.fromName] = (senders[m.fromName] || 0) + 1;
+      return { id: s.name, name: s.name, kind: s.k, sid: s.sid, msgs, n: msgs.length, first: msgs[0].ts, last: msgs[msgs.length - 1].ts, senders, mode: 'pkg' };
+    });
+    S.sessions = sessions; S.meId = d.me; S.meName = d.meName || '';
+    const total = sessions.reduce((a, s) => a + s.n, 0);
+    setBar(true, '完成：' + sessions.length + ' 个会话，' + total.toLocaleString() + ' 条消息', 1);
+    setTimeout(() => { $('intro').classList.add('hide'); afterLoad(); }, 400);
+  } catch (err) { setBar(true, '数据包解析失败：' + err.message, 1); }
+};
+$('btn-re').onclick = () => { $('intro').classList.remove('hide'); setBar(false); };
+/* 拖拽导入 */
+const dm = $('dropmask');
+window.addEventListener('dragover', e => { e.preventDefault(); dm.classList.add('on'); });
+window.addEventListener('dragleave', e => { if (e.relatedTarget === null) dm.classList.remove('on'); });
+window.addEventListener('drop', async e => {
+  e.preventDefault(); dm.classList.remove('on');
+  const items = e.dataTransfer.items;
+  if (!items || !items.length) return;
+  setBar(true, '扫描拖入的内容…', 0.02);
+  const out = [];
+  const walk = async (entry, path) => {
+    if (entry.isFile) { const f = await new Promise((res, rej) => entry.file(res, rej)); if (/\.html?$/i.test(f.name)) out.push({ f, path: path + f.name }); }
+    else if (entry.isDirectory) {
+      const rd = entry.createReader();
+      const ents = await new Promise(res => rd.readEntries(res));
+      for (const en of ents) await walk(en, path + entry.name + '/');
+    }
+  };
+  const roots = [];
+  for (const it of items) { const en = it.webkitGetAsEntry && it.webkitGetAsEntry(); if (en) roots.push(en); }
+  if (!roots.length) { alert('这个浏览器不支持拖拽文件夹，请用「选择记录文件夹」按钮。'); return; }
+  for (const r of roots) await walk(r, '');
+  const files = out.map(o => o.f);
+  if (!files.length) { setBar(true, '拖入的内容里没有 .html 文件', 1); return; }
+  files.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  await ingestFiles(files);
+});
+
+/* ==================== 7. 导出 ==================== */
+function dl(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+function serialize() {
+  return {
+    v: 1, me: S.meId, meName: S.meName, generatedAt: new Date().toISOString(),
+    sessions: sortedSessions().map(s => ({
+      name: s.name, k: s.kind, sid: s.sid, n: s.n,
+      m: s.msgs.map(m => [m.ts, m.fromId, m.fromName, m.t, m.text, m.url, m.w, m.h, m.at])
+    }))
+  };
+}
+$('btn-export-pkg').onclick = async () => {
+  const btn = $('btn-export-pkg'); btn.disabled = true;
+  setBar(true, '正在打包（' + S.sessions.reduce((a, s) => a + s.n, 0).toLocaleString() + ' 条消息，可能需要几秒）…', 0.3);
+  await sleep(50);
+  try {
+    const txt = JSON.stringify(serialize());
+    dl(new Blob([txt], { type: 'application/json' }), 'chat_data_' + new Date().toISOString().slice(0, 10) + '.json');
+    setBar(true, '已导出数据包 ' + (txt.length / 1048576).toFixed(1) + ' MB，在浏览器下载目录里。下次用「导入数据包」秒开。', 1);
+  } catch (e) { setBar(true, '导出失败：' + e.message, 1); }
+  btn.disabled = false;
+};
+function exportSessionHTML(s) {
+  const css = 'body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f5f5f5;margin:0;padding:24px 14px;color:#191919}'
+    + '.w{max-width:900px;margin:0 auto}.day{text-align:center;margin:16px 0}.day span{font-size:12px;color:#999;background:rgba(0,0,0,.06);padding:3px 10px;border-radius:9px}'
+    + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
+    + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
+    + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:14px}'
+    + '.m.me .bub{background:#95ec69}.tm{font-size:10.5px;color:#aaa;margin:0 6px;align-self:flex-end}'
+    + '.imgwrap img{max-width:280px;max-height:280px;border-radius:5px}h1{font-size:17px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#999;font-size:12px;margin-bottom:20px}';
+  let h = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.name) + '</title><style>' + css + '</style></head><body><div class="w">'
+    + '<h1>' + esc(s.name) + '</h1><div class="sub">' + (s.kind === 'GROUP' ? '群聊' : '私聊') + ' · ' + s.n.toLocaleString() + ' 条 · ' + fmtTime(s.first) + ' ~ ' + fmtTime(s.last) + '</div>';
+  let lastTs = 0;
+  for (const m of s.msgs) {
+    if (!lastTs || !sameDay(lastTs, m.ts)) h += '<div class="day"><span>' + fmtDay(m.ts) + '</span></div>';
+    const me = S.meId !== null && String(m.fromId) === String(S.meId);
+    const who = (!me && s.kind === 'GROUP') ? '<div class="who">' + esc(m.fromName) + '</div>' : '';
+    let body;
+    if (m.t === 'T') body = '<div class="bub">' + esc(m.text) + '</div>';
+    else if (m.url) {
+      const bx = imgBox(m.w, m.h);
+      const sz = bx.known ? ' width="' + bx.w + '" height="' + bx.h + '"' : '';
+      body = '<div class="bub" style="padding:4px"><div class="imgwrap"><img loading="lazy"' + sz + ' src="' + esc(m.url) + '"></div></div>';
+    }
+    else body = '<div class="bub">[' + (m.t === 'N' ? '笔记' : '图片') + ']</div>';
+    h += '<div class="m' + (me ? ' me' : '') + '"><div class="av" style="background:' + colorOf(m.fromName) + '">' + esc(initialOf(m.fromName)) + '</div>'
+      + '<div class="col">' + who + '<div style="display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '') + '">' + body + '<span class="tm">' + fmtHM(m.ts) + '</span></div></div></div>';
+    lastTs = m.ts;
+  }
+  h += '</div></body></html>';
+  dl(new Blob([h], { type: 'text/html;charset=utf-8' }), s.name.replace(/[\\/:*?"<>|]/g, '_') + '_聊天记录.html');
+}
+$('btn-export-all').onclick = async () => {
+  if (!S.sessions.length) return;
+  if (!confirm('将把 ' + S.sessions.length + ' 个会话各导出成一个 HTML 文件（共 ' + S.sessions.reduce((a, s) => a + s.n, 0).toLocaleString() + ' 条，浏览器可能提示“允许多文件下载”）。继续？')) return;
+  for (const s of sortedSessions()) { exportSessionHTML(s); await sleep(420); }
+};
+
+/* ==================== 8. 灯箱 ==================== */
+let lbZoom = false;
+function openLB(url, w, h) {
+  if (!url) return;
+  const img = $('lb-img');
+  img.src = url; img.classList.remove('zoom2'); lbZoom = false; img.style.transform = '';
+  $('lb-info').textContent = (w && h ? w + ' × ' + h + '  ·  ' : '') + url;
+  $('lb-open').onclick = () => window.open(url, '_blank');
+  $('lb-copy').onclick = async () => { try { await navigator.clipboard.writeText(url); $('lb-copy').textContent = '已复制'; setTimeout(() => $('lb-copy').textContent = '复制链接', 1200); } catch (e) { prompt('手动复制：', url); } };
+  $('lb').classList.add('on');
+}
+$('lb-close').onclick = () => $('lb').classList.remove('on');
+$('lb').addEventListener('click', e => { if (e.target.id === 'lb' || e.target.classList.contains('lb-body')) $('lb').classList.remove('on'); });
+$('lb-img').addEventListener('click', e => {
+  lbZoom = !lbZoom;
+  const img = $('lb-img');
+  img.classList.toggle('zoom2', lbZoom);
+  if (lbZoom) {
+    const r = img.getBoundingClientRect();
+    img.style.transformOrigin = ((e.clientX - r.left) / r.width * 100) + '% ' + ((e.clientY - r.top) / r.height * 100) + '%';
+    img.style.transform = 'scale(2.2)';
+  } else img.style.transform = '';
+});
+
+/* ==================== 9. 设置 / 主题 / 缓存 ==================== */
+$('btn-set').onclick = () => { fillSettings(); $('dlg').classList.add('on'); };
+$('btn-dlg-ok').onclick = () => $('dlg').classList.remove('on');
+$('dlg').addEventListener('click', e => { if (e.target.id === 'dlg') $('dlg').classList.remove('on'); });
+function fillSettings() {
+  const sel = $('set-me');
+  const counts = {};
+  for (const s of S.sessions) for (const m of s.msgs) { const k = m.fromId + '|' + m.fromName; counts[k] = (counts[k] || 0) + 1; }
+  const list = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 60);
+  sel.innerHTML = '<option value="">（不指定，全部靠左）</option>' + list.map(([k, v]) => {
+    const [id, nm] = k.split('|');
+    return '<option value="' + esc(id) + '"' + (String(S.meId) === String(id) ? ' selected' : '') + '>' + esc(nm) + '（ID ' + esc(id) + '，' + v.toLocaleString() + ' 条）</option>';
+  }).join('');
+  $('set-sort').value = S.sort; $('set-theme').value = S.theme; $('set-img').value = S.showImg ? 'on' : 'off';
+}
+$('set-me').onchange = e => { S.meId = e.target.value || null; const o = e.target.selectedOptions[0]; S.meName = o ? o.textContent.split('（')[0] : ''; renderMsgs(false); saveConf(); };
+$('set-sort').onchange = e => { S.sort = e.target.value; renderSidebar(); saveConf(); };
+$('set-theme').onchange = e => { setTheme(e.target.value); saveConf(); };
+$('set-img').onchange = e => { S.showImg = e.target.value === 'on'; if (S.cur) renderMsgs(false); saveConf(); };
+$('btn-theme').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
+function setTheme(t) { S.theme = t; document.documentElement.dataset.theme = t; $('btn-theme').textContent = t === 'dark' ? '☀' : '◐'; }
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { $('lb').classList.remove('on'); $('dlg').classList.remove('on'); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); }
+});
+function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify({ theme: S.theme, sort: S.sort, showImg: S.showImg, meId: S.meId, meName: S.meName })); } catch (e) { } }
+function loadConf() {
+  try {
+    const c = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
+    if (c.theme) setTheme(c.theme);
+    if (c.sort) S.sort = c.sort;
+    if (c.showImg === false) S.showImg = false;
+    if (c.meId !== undefined) S.meId = c.meId;
+    if (c.meName) S.meName = c.meName;
+  } catch (e) { } setTheme(S.theme);
+}
+/* IndexedDB 缓存（file:// 下可能不可用，失败就静默跳过） */
+function idb() {
+  return new Promise((res, rej) => {
+    if (!window.indexedDB) return rej(new Error('no idb'));
+    const r = indexedDB.open('chatviewer', 1);
+    r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache'); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function saveCache() {
+  try {
+    const db = await idb();
+    const payload = JSON.stringify(serialize());
+    await new Promise((res, rej) => {
+      const tx = db.transaction('cache', 'readwrite');
+      tx.objectStore('cache').put(payload, 'last');
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+    $('status').textContent += '\n已在本机缓存，下次打开可一键恢复。';
+  } catch (e) { /* 静默 */ }
+}
+async function tryRestore() {
+  try {
+    const db = await idb();
+    const payload = await new Promise((res, rej) => {
+      const tx = db.transaction('cache', 'readonly');
+      const q = tx.objectStore('cache').get('last');
+      q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+    });
+    if (S.importing || document.getElementById('intro').classList.contains('hide')) return false;  // 用户已开始导入，别覆盖
+    if (!payload) return false;
+    const d = JSON.parse(payload);
+    if (!d.sessions || !d.sessions.length) return false;
+    S.sessions = d.sessions.map(s => {
+      const msgs = s.m.map(a => ({ ts: a[0], fromId: a[1], fromName: a[2], t: a[3], text: a[4] || '', url: a[5] || '', w: a[6] || 0, h: a[7] || 0, at: a[8] || fmtTime(a[0]) }));
+      const senders = {}; for (const m of msgs) senders[m.fromName] = (senders[m.fromName] || 0) + 1;
+      return { id: s.name, name: s.name, kind: s.k, sid: s.sid, msgs, n: msgs.length, first: msgs[0].ts, last: msgs[msgs.length - 1].ts, senders, mode: 'cache' };
+    });
+    S.meId = d.me; S.meName = d.meName || '';
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ==================== 10. 启动 ==================== */
+async function boot() {
+  loadConf();
+  const ok = await tryRestore();
+  if (ok && !S.importing) {
+    $('intro-sub').innerHTML = '检测到上次导入的缓存数据（<b>' + S.sessions.length + ' 个会话</b>），已自动载入。';
+    $('intro').classList.add('hide');
+    renderSidebar();
+    const list = sortedSessions(); if (list.length) openSession(list[0].id);
+  }
+}
+/* 暴露内部接口（自动化验证用） */
+window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg };
+boot();
+</script>
+</body>
+</html>

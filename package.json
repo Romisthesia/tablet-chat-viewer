@@ -1,0 +1,14 @@
+{
+  "name": "tablet-chat-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "把教育平板 / 校园 App 导出的 HTML 聊天记录，按聊天软件的样子查看（单文件纯前端）",
+  "scripts": {
+    "test": "npm --prefix dev test",
+    "test:full": "npm --prefix dev run test:full",
+    "sample": "npm --prefix dev run sample",
+    "stats": "npm --prefix dev run stats",
+    "build": "npm --prefix dev run build",
+    "parse": "npm --prefix dev run parse"
+  }
+}
