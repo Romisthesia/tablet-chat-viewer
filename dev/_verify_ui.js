@@ -12,6 +12,11 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   C.ensureOut();
   const browser = await puppeteer.launch({ executablePath: C.chromePath(), headless: 'new', args: ['--no-sandbox', '--allow-file-access-from-files'] });
   const { page, errors } = await C.openViewer(browser);
+  const sysDefault = await page.evaluate(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  console.log('宿主系统深浅色偏好（未干预）：' + (sysDefault ? '深色' : '浅色'));
+  // 主题默认「跟随系统」，会让配色随宿主变化；这里固定成浅色，后面的断言才确定
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  await page.evaluate(() => window.__viewer.setTheme('light'));
   const info = await C.ingestAll(page);
   await C.sleep(1200);
   const pick = await C.pickSessions(page);
@@ -131,7 +136,9 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   await page.screenshot({ path: C.path.join(C.OUT, 'ui_jump.png') });
 
   // ---------- 6. 深色模式 ----------
-  await page.evaluate(() => document.getElementById('btn-theme').click());
+  await page.evaluate(() => { window.__viewer.setTheme('light'); });      // 先确保是浅色
+  await C.sleep(200);
+  await page.evaluate(() => document.getElementById('btn-theme').click()); // 按钮切到深色
   await C.sleep(300);
   await page.evaluate(id => window.__viewer.openSession(id), (pick.imgGroup || pick.biggest));
   await C.sleep(2500);
@@ -142,6 +149,71 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   }));
   chk('深色模式已生效', dark.theme === 'dark' && dark.chatBg === 'rgb(25, 25, 25)', dark.chatBg);
   await page.screenshot({ path: C.path.join(C.OUT, 'ui_dark.png') });
+
+
+  // ---------- 6b. 跟随系统深浅主题 ----------
+  const themeProbe = () => page.evaluate(() => ({
+    设置: window.__viewer.S.theme,
+    实际: document.documentElement.dataset.theme,
+    聊天背景: getComputedStyle(document.getElementById('main')).backgroundColor,
+    按钮标题: document.getElementById('btn-theme').title,
+    系统深色: window.matchMedia('(prefers-color-scheme: dark)').matches
+  }));
+
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  await page.evaluate(() => window.__viewer.setTheme('auto'));
+  await C.sleep(250);
+  const th1 = await themeProbe();
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+  await C.sleep(500);
+  const th2 = await themeProbe();
+  chk('跟随系统：系统浅色→浅色', th1.设置 === 'auto' && th1.实际 === 'light' && th1.聊天背景 === 'rgb(245, 245, 245)', JSON.stringify(th1));
+  chk('跟随系统：系统切深色时自动变深', th2.系统深色 && th2.实际 === 'dark' && th2.聊天背景 === 'rgb(25, 25, 25)', JSON.stringify(th2));
+
+  await page.evaluate(() => window.__viewer.setTheme('light'));
+  await C.sleep(250);
+  const th3 = await themeProbe();
+  chk('显式选浅色时不受系统影响（系统仍是深色）', th3.设置 === 'light' && th3.实际 === 'light', JSON.stringify(th3));
+
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  await page.evaluate(() => window.__viewer.setTheme('dark'));
+  await C.sleep(250);
+  const th4 = await themeProbe();
+  chk('显式选深色时不受系统影响（系统仍是浅色）', th4.设置 === 'dark' && th4.实际 === 'dark', JSON.stringify(th4));
+
+  // 下拉里应有三个选项
+  await page.evaluate(() => document.getElementById('btn-set').click());
+  await C.sleep(250);
+  const opts = await page.evaluate(() => [...document.getElementById('set-theme').options].map(o => o.value));
+  chk('主题下拉里是 跟随系统/浅色/深色 三选', opts.join(',') === 'auto,light,dark', opts.join(','));
+
+  // 通过下拉（会 saveConf）切换，确认选择被持久化到 localStorage
+  await page.evaluate(() => {
+    const sel = document.getElementById('set-theme');
+    sel.value = 'dark'; sel.dispatchEvent(new Event('change'));
+  });
+  await C.sleep(250);
+  const th5 = await page.evaluate(() => ({
+    存储: (JSON.parse(localStorage.getItem('chatview.conf') || '{}')).theme,
+    实际: document.documentElement.dataset.theme,
+    选中: document.getElementById('set-theme').value
+  }));
+  chk('通过下拉切换后被持久化（下次打开沿用）', th5.存储 === 'dark' && th5.实际 === 'dark' && th5.选中 === 'dark', JSON.stringify(th5));
+  await page.evaluate(() => {
+    const sel = document.getElementById('set-theme');
+    sel.value = 'auto'; sel.dispatchEvent(new Event('change'));
+  });
+
+  // 点右上角按钮：从自动切到显式
+  await page.evaluate(() => { window.__viewer.setTheme('auto'); });
+  await C.sleep(200);
+  await page.evaluate(() => document.getElementById('btn-theme').click());
+  await C.sleep(200);
+  const th6 = await themeProbe();
+  chk('点主题按钮会从「跟随系统」切到显式模式', th6.设置 !== 'auto', JSON.stringify(th6));
+
+  await page.evaluate(() => window.__viewer.setTheme('auto'));
+  await C.sleep(200);
 
   // ---------- 7. 设置面板 ----------
   await page.evaluate(() => document.getElementById('btn-set').click());

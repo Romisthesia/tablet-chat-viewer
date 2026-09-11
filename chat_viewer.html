@@ -147,6 +147,17 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 ::-webkit-scrollbar-thumb{background:rgba(128,128,128,.35);border-radius:5px}
 ::-webkit-scrollbar-track{background:transparent}
 </style>
+<script>
+/* 极早执行：在样式生效前定好主题，避免系统是深色时先闪一下白的 */
+(function () {
+  try {
+    var c = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
+    var t = c.theme || 'auto';
+    if (t === 'auto') t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  } catch (e) { }
+})();
+</script>
 </head>
 <body>
 <div id="app">
@@ -216,7 +227,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
       <option value="count">按消息条数（倒序）</option>
     </select>
     <label>外观</label>
-    <select id="set-theme"><option value="light">浅色（微信白）</option><option value="dark">深色</option></select>
+    <select id="set-theme"><option value="auto">跟随系统</option><option value="light">浅色（微信白）</option><option value="dark">深色</option></select>
     <label>图片显示</label>
     <select id="set-img"><option value="on">显示图片（联网加载）</option><option value="off">只看占位框（省流量）</option></select>
     <label>本地缓存</label>
@@ -247,7 +258,7 @@ const S = {
   cur: null,             // 当前会话
   startIdx: 0,           // 已渲染起始下标
   q: '', tab: 'chat',
-  theme: 'light', showImg: true, sort: 'time',
+  theme: 'auto', showImg: true, sort: 'time',
   hits: [],              // 全文搜索结果
   win: 250,              // 每批渲染条数
   importing: false,      // 用户已开始手动导入（用于阻止开机缓存恢复覆盖）
@@ -872,8 +883,24 @@ function setMsg(t) {
   clearTimeout(window.__mt);
   window.__mt = setTimeout(() => { el.textContent = ''; }, 7000);
 }
-$('btn-theme').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
-function setTheme(t) { S.theme = t; document.documentElement.dataset.theme = t; $('btn-theme').textContent = t === 'dark' ? '☀' : '◐'; }
+/* 主题三态：auto(跟随系统) / light / dark */
+const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+function resolvedTheme() { return S.theme === 'auto' ? (mqDark.matches ? 'dark' : 'light') : S.theme; }
+function applyTheme() {
+  const t = resolvedTheme();
+  document.documentElement.dataset.theme = t;
+  const btn = $('btn-theme');
+  if (btn) {
+    btn.textContent = t === 'dark' ? '☾' : '☀';
+    btn.title = '当前：' + (S.theme === 'auto' ? '跟随系统（' + (t === 'dark' ? '深色' : '浅色') + '）' : (t === 'dark' ? '深色' : '浅色'))
+      + ' · 点击切到' + (t === 'dark' ? '浅色' : '深色');
+  }
+  const sel = $('set-theme');
+  if (sel && sel.value !== S.theme) sel.value = S.theme;
+}
+function setTheme(t) { S.theme = t; applyTheme(); }
+mqDark.addEventListener('change', () => { if (S.theme === 'auto') applyTheme(); });   // 系统切换时实时跟随
+$('btn-theme').onclick = () => { setTheme(resolvedTheme() === 'dark' ? 'light' : 'dark'); saveConf(); };
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { $('lb').classList.remove('on'); $('dlg').classList.remove('on'); }
   if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); }
@@ -882,13 +909,14 @@ function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify
 function loadConf() {
   try {
     const c = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
-    if (c.theme) setTheme(c.theme);
+    if (c.theme) S.theme = c.theme;
     if (c.sort) S.sort = c.sort;
     if (c.showImg === false) S.showImg = false;
     if (c.meId !== undefined) S.meId = c.meId;
     if (c.meName) S.meName = c.meName;
     if (c.remember === false) S.remember = false;
-  } catch (e) { } setTheme(S.theme);
+  } catch (e) { }
+  applyTheme();
 }
 /* IndexedDB 缓存（file:// 下可能不可用，失败就静默跳过） */
 function idb() {
@@ -952,7 +980,7 @@ async function boot() {
   }
 }
 /* 暴露内部接口（自动化验证用） */
-window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg };
+window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg, setTheme, applyTheme, resolvedTheme };
 boot();
 </script>
 </body>
