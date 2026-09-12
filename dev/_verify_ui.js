@@ -42,6 +42,16 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
         chatBg: cs(document.getElementById('main')).backgroundColor,
         overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
         rowHeights: [...document.querySelectorAll('#msgs .m')].map(r => Math.round(r.getBoundingClientRect().height)),
+        标记上方间距: (() => {
+          const kids = [...document.querySelectorAll('#msgs > *')]; const out = [];
+          for (let i = 1; i < kids.length; i++) if (kids[i].classList.contains('sys')) out.push(Math.round(kids[i].getBoundingClientRect().top - kids[i - 1].getBoundingClientRect().bottom));
+          return out;
+        })(),
+        标记下方间距: (() => {
+          const kids = [...document.querySelectorAll('#msgs > *')]; const out = [];
+          for (let i = 0; i < kids.length - 1; i++) if (kids[i].classList.contains('sys')) out.push(Math.round(kids[i + 1].getBoundingClientRect().top - kids[i].getBoundingClientRect().bottom));
+          return out;
+        })(),
         avGap: (() => { const m = document.querySelector('#msgs .m:not(.me)'); if (!m) return null; const av = m.querySelector('.av'), bb = m.querySelector('.bub'); return av && bb ? Math.round(bb.getBoundingClientRect().left - av.getBoundingClientRect().right) : null; })(),
         相邻消息间距: (() => {
           const kids = [...document.querySelectorAll('#msgs > *')]; const out = [];
@@ -64,6 +74,11 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     chk('对方气泡是白色', geo.otherBg === 'rgb(255, 255, 255)', geo.otherBg);
     chk('正文字号 14px', geo.fontSize === '14px', geo.fontSize);
     chk('气泡高度均正常', geo.rowHeights.length > 0 && geo.rowHeights.every(h => h > 0), geo.rowHeights.join(','));
+    if (geo.标记上方间距.length) {
+      const 上 = Math.min(...geo.标记上方间距), 下 = Math.min(...geo.标记下方间距), 消 = Math.min(...geo.相邻消息间距);
+      chk('时间块与气泡的间距 > 气泡之间的间距', 上 > 消 && 下 > 消,
+        '时间块上方 ' + 上 + 'px / 下方 ' + 下 + 'px vs 气泡之间 ' + 消 + 'px');
+    } else console.log('（当前会话没有时间块，跳过时间块间距检查）');
     chk('相邻消息的垂直间距 > 头像与气泡的间距',
       geo.avGap > 0 && geo.相邻消息间距.length > 0 && Math.min(...geo.相邻消息间距) > geo.avGap,
       '消息间距最小 ' + Math.min(...geo.相邻消息间距) + 'px vs 头像↔气泡 ' + geo.avGap + 'px（取 ' + geo.相邻消息间距.slice(0, 5).join('/') + '）');
@@ -545,6 +560,50 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   // 关掉时间戳，避免影响后面的截图
   await page.evaluate(() => { const c = document.getElementById('set-stamp'); c.checked = false; c.dispatchEvent(new Event('change')); });
   await C.sleep(300);
+
+
+  // ---------- 9. 侧栏群聊头像拼图 + 光标防护 ----------
+  const sideInfo = await page.evaluate(() => {
+    const S = window.__viewer.S;
+    // 测试里独立算一遍「最晚发过消息的 4 个人」，用来和实际渲染对照
+    const expect = s => {
+      const out = [], seen = new Set();
+      for (let i = s.msgs.length - 1; i >= 0 && out.length < 4; i--) {
+        const m = s.msgs[i];
+        const nm = m.fromName || (String(m.fromId) === String(S.meId) ? S.meName : '');
+        if (!nm || seen.has(nm)) continue;
+        seen.add(nm); out.push(nm);
+      }
+      return out;
+    };
+    const rows = [...document.querySelectorAll('#list .row')];
+    const out = { 群数: 0, 拼图行: 0, 自定义优先: 0, 明细: [] };
+    for (const s of S.sessions.filter(x => x.kind === 'GROUP')) {
+      out.群数++;
+      const row = rows.find(r => r.dataset.id === s.id); if (!row) continue;
+      const av = row.querySelector('.av');
+      if (S.avatars[s.name]) { out.自定义优先++; continue; }          // 绑定过自定义群头像的，优先显示那张图
+      const tiles = [...av.querySelectorAll('[title]')].map(x => x.getAttribute('title'));
+      const exp = expect(s).slice(0, 4);
+      const r0 = av.getBoundingClientRect();
+      const inner = [...av.children].every(c => { const r = c.getBoundingClientRect(); return r.left >= r0.left - 1 && r.right <= r0.right + 1 && r.bottom <= r0.bottom + 1; });
+      if (tiles.length) out.拼图行++;
+      out.明细.push({ 会话: s.name, 期望: exp, 实际: tiles, 尺寸对: Math.round(r0.width) === 38 && Math.round(r0.height) === 38, 未溢出: inner });
+    }
+    const av0 = document.querySelector('#list .row .av'), cs = av0 ? getComputedStyle(av0) : null;
+    const row0 = document.querySelector('#list .row'), rs = row0 ? getComputedStyle(row0) : null;
+    out.光标 = cs ? { 头像caret: cs.caretColor, 头像可选: cs.userSelect, 行caret: rs.caretColor, 行可选: rs.userSelect } : null;
+    return out;
+  });
+  const 拼图错 = sideInfo.明细.filter(d => d.实际.length !== d.期望.length || d.实际.join('|') !== d.期望.join('|') || !d.尺寸对 || !d.未溢出);
+  chk('群聊标题头像 = 群内最晚发过消息的 4 人拼图（不足 4 人取全部）',
+    sideInfo.拼图行 > 0 && 拼图错.length === 0,
+    '群 ' + sideInfo.群数 + ' 个 / 拼图 ' + sideInfo.拼图行 + ' 个' + (拼图错.length ? ' 异常：' + JSON.stringify(拼图错) : ' 全部人数与次序一致'));
+  if (sideInfo.自定义优先) console.log('  （有 ' + sideInfo.自定义优先 + ' 个群绑定了自定义群头像，按设计优先显示自定义图）');
+  chk('群聊拼图头像尺寸 38x38 且子块不溢出', sideInfo.明细.every(d => d.尺寸对 && d.未溢出), JSON.stringify(sideInfo.明细.slice(0, 2)));
+  chk('头像与侧栏行不可选中、光标颜色透明（防文字光标乱入）',
+    sideInfo.光标 && sideInfo.光标.头像caret === 'rgba(0, 0, 0, 0)' && sideInfo.光标.头像可选 === 'none'
+    && sideInfo.光标.行caret === 'rgba(0, 0, 0, 0)' && sideInfo.光标.行可选 === 'none', JSON.stringify(sideInfo.光标));
 
   // ---------- 7. 设置面板 ----------
   await page.evaluate(() => document.getElementById('btn-set').click());

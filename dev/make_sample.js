@@ -14,7 +14,9 @@ const ME = 9001, ME_NAME = '林小舟';
 const S = {
   group: { id: 3001, name: '高二(3)班通知群', type: 'GROUP' },
   club:  { id: 3002, name: '机器人社·技术组', type: 'GROUP' },
-  peer:  { id: 4001, name: '陈屿', type: 'SINGLE' }
+  peer:  { id: 4001, name: '陈屿', type: 'SINGLE' },
+  lab:   { id: 3003, name: '物理实验小组', type: 'GROUP' },     // 3 人：验证群头像「上二下一」
+  pair:  { id: 3004, name: '值日搭档', type: 'GROUP' }          // 2 人：验证群头像「左右各半」
 };
 
 /* 造一张纯色渐变的 PNG，用 data URL 内联进消息里 —— 样例数据因此不依赖任何外网图床，
@@ -115,6 +117,18 @@ const clubRows = [
   [11, '21:06', ME, ME_NAME, 'IMAGE', jimg(220, 170, [198, 92, 158], [92, 20, 92])]
 ];
 
+const labRows = [
+  [0, '15:00', 7001, '组长·秦岭', 'TEXT', '今天的分光计读数我记在纸上了'],
+  [0, '15:02', ME, ME_NAME, 'TEXT', '好，我把它录进表格'],
+  [3, '15:10', 7002, '组员·白露', 'TEXT', '下周的实验报告谁写引言？'],
+  [3, '15:12', 7001, '组长·秦岭', 'TEXT', '你写吧，我写数据处理']
+];
+
+const pairRows = [
+  [0, '09:00', 8001, '同桌·孙可', 'TEXT', '借我一下昨天的化学笔记？'],
+  [0, '09:05', ME, ME_NAME, 'TEXT', '在我平板里，等下拍给你']
+];
+
 function esc(s) {
   return String(s)
     .replace(/\\/g, '\\\\')
@@ -142,7 +156,13 @@ function build(sess, list) {
 }
 
 fs.mkdirSync(OUTDIR, { recursive: true });
-const jobs = [['高二(3)班通知群', S.group, groupRows], ['机器人社·技术组', S.club, clubRows], ['陈屿', S.peer, rows]];
+const jobs = [
+  ['高二(3)班通知群', S.group, groupRows],
+  ['机器人社·技术组', S.club, clubRows],
+  ['陈屿', S.peer, rows],
+  ['物理实验小组', S.lab, labRows],
+  ['值日搭档', S.pair, pairRows]
+];
 let total = 0;
 for (const [name, sess, list] of jobs) {
   fs.writeFileSync(path.join(OUTDIR, name + '.html'), build(sess, list), 'utf8');

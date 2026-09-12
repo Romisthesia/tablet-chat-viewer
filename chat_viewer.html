@@ -61,10 +61,14 @@ button:disabled{opacity:.45;cursor:default}
 #tabs .tab{padding:3px 9px;border-radius:11px;background:transparent;color:var(--txt-dim)}
 #tabs .tab.on{background:var(--accent);color:#fff;font-weight:500}
 #list{flex:1;overflow-y:auto;padding-bottom:10px}
-.row{display:flex;gap:10px;padding:9px 12px;cursor:pointer;align-items:center}
+.row{display:flex;gap:10px;padding:9px 12px;cursor:pointer;align-items:center;user-select:none;caret-color:transparent}
 .row:hover{background:var(--side-hover)}
 .row.on{background:var(--side-sel)}
-.row .av{width:38px;height:38px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500}
+/* 头像/侧栏行不该出现文字光标（浏览器「光标浏览 F7」或第三方脚本把页面设为可编辑时会冒出来），
+   这里做防护：不可选中 + 光标颜色透明，光标即使在也不可见 */
+.av{user-select:none;caret-color:transparent}
+.row .av{width:38px;height:38px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500;overflow:hidden;padding:0}
+.row .av.gr{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1px;background:var(--img-ph)}
 .row .mid{flex:1;min-width:0}
 .row .n1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .row .nm{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -85,7 +89,7 @@ button:disabled{opacity:.45;cursor:default}
 #loadmore button{font-size:12px;padding:4px 12px;border-radius:14px;background:transparent;border-color:var(--side-bd);color:var(--txt-dim)}
 #msgs{padding:0 18px;max-width:1000px;margin:0 auto}
 /* 时间标记：日期条与间隔标记已合并成这一种 */
-.sys{text-align:center;margin:16px 0 12px}
+.sys{text-align:center;margin:26px 0 24px}   /* 上下都要大于消息之间的 14px（相邻外边距取较大值） */
 .sys span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
 .m{display:flex;gap:9px;margin-bottom:14px;align-items:flex-start}   /* 消息间距要大于头像↔气泡的 9px */
 .m.me{flex-direction:row-reverse}
@@ -490,6 +494,41 @@ function imgBox(w, h) {
 }
 function colorOf(name) { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return PAL[h % PAL.length]; }
 function initialOf(name) { const s = String(name || '?').trim(); return s ? s[0] : '?'; }
+/* 头像里"填充"用的内容（自定义图片或首字色块），宽高跟着容器走 —— 供群聊拼图使用 */
+function avatarFill(name, tip) {
+  const nm = name || '';
+  const img = S.avatars && nm && S.avatars[nm];
+  const body = img
+    ? '<img src="' + esc(img) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">'
+    : '<span style="color:#fff;font-size:11px;line-height:1;font-weight:500">' + esc(initialOf(nm)) + '</span>';
+  return '<div title="' + esc(tip || nm) + '" style="width:100%;height:100%;background:' + (img ? 'transparent' : colorOf(nm)) +
+    ';display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;caret-color:transparent">' + body + '</div>';
+}
+/* 群聊里"最晚发过消息"的 n 个人（按时间从新到旧，按昵称去重） */
+function recentSenders(s, n) {
+  const out = [], seen = new Set();
+  for (let i = s.msgs.length - 1; i >= 0 && out.length < n; i--) {
+    const m = s.msgs[i];
+    const nm = m.fromName || (String(m.fromId) === String(S.meId) ? S.meName : '');
+    if (!nm || seen.has(nm)) continue;
+    seen.add(nm); out.push(nm);
+  }
+  return out;
+}
+/* 群聊标题头像：4 人 2x2；3 人上二下一（整宽）；2 人左右各半；1 人整块 */
+function groupTile(names, size) {
+  const sz = size || 38, n = Math.min(names.length, 4);
+  if (!n) return avatar('群', sz);
+  if (n === 1) {
+    return '<div class="av gr" data-name="' + esc(names[0]) + '" title="' + esc(names[0]) + '" style="width:' + sz + 'px;height:' + sz + 'px;border-radius:5px;overflow:hidden;display:grid;grid-template-columns:1fr;grid-template-rows:1fr;background:var(--img-ph)">' +
+      '<div style="overflow:hidden;display:flex">' + avatarFill(names[0]) + '</div></div>';
+  }
+  const cells = names.slice(0, 4).map((nm, i) => {
+    const span = (n === 3 && i === 2) ? 'grid-column:span 2' : '';
+    return '<div style="' + span + ';overflow:hidden;display:flex">' + avatarFill(nm) + '</div>';
+  }).join('');
+  return '<div class="av gr" data-name="' + esc(names.slice(0, 4).join('、')) + '" title="' + esc(names.slice(0, 4).join('、')) + '" style="width:' + sz + 'px;height:' + sz + 'px;border-radius:5px;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:' + (n === 2 ? '1fr' : '1fr 1fr') + ';gap:1px;background:var(--img-ph)">' + cells + '</div>';
+}
 function avatar(name, size) {
   const sz = size || 34, rad = sz > 36 ? 5 : 4, nm = name || '';
   const base = 'width:' + sz + 'px;height:' + sz + 'px;border-radius:' + rad + 'px';
@@ -540,7 +579,9 @@ function renderSidebar() {
     if (!list.length) html = '<div class="empty">没有匹配的会话</div>';
     for (const s of list) {
       html += '<div class="row' + (S.cur && S.cur.id === s.id ? ' on' : '') + '" data-id="' + esc(s.id) + '">' +
-        avatar(s.name, 38) +
+        (s.kind === 'GROUP'
+          ? ((S.avatars && S.avatars[s.name]) ? avatar(s.name, 38) : groupTile(recentSenders(s, 4), 38))
+          : avatar(s.name, 38)) +
         '<div class="mid"><div class="n1"><div class="nm">' + esc(s.name) + '</div><div class="tm">' + fmtListTime(s.last) + '</div></div>' +
         '<div class="n2">' + (s.kind === 'GROUP' ? '<span class="tag">群</span>' : '<span class="tag">私</span>') +
         esc(preview(s)).slice(0, 90) + ' · ' + s.n + '条</div></div></div>';
@@ -1279,7 +1320,7 @@ async function boot() {
 /* 暴露内部接口（自动化验证用） */
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
-  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark };
+  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile };
 boot();
 </script>
 </body>
