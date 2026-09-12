@@ -805,38 +805,56 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   // ---------- 12. 会话内：图片画廊 ----------
   const gal = await page.evaluate(async () => {
     const V = window.__viewer, S = V.S;
-    const s = V.sortedSessions().find(x => x.msgs.some(m => m.url)) || S.cur;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const imgN = x => x.msgs.reduce((a, m) => a + (m.url ? 1 : 0), 0);
+    const s = V.sortedSessions().slice().sort((a, b) => imgN(b) - imgN(a))[0];   // 取图片最多的会话
     V.openSession(s.id);
-    await new Promise(r => setTimeout(r, 500));
+    await sleep(600);
     const total = V.sessionImages().length;
     V.openGallery();
-    await new Promise(r => setTimeout(r, 600));
-    const g = document.getElementById('gal');
-    const cells = [...document.querySelectorAll('#gal .gal-cell')];
-    const out = { 会话: s.name, 本会话图数: total, 首屏格子: cells.length, 画廊打开: g.classList.contains('on'), 标题: (document.getElementById('gal-n') || {}).textContent, 有更多按钮: !!document.getElementById('gal-btn-more') };
-    cells[0].click();
-    await new Promise(r => setTimeout(r, 600));
-    out.点缩略图后 = { 画廊关: !g.classList.contains('on'), 灯箱开: document.getElementById('lb').classList.contains('on'),
-                       计数: document.getElementById('lb-pos').textContent, 图URL前缀: document.getElementById('lb-img').src.slice(0, 24) };
-    V.closeLB();
-    if (out.有更多按钮) {
-      V.openGallery();
-      await new Promise(r => setTimeout(r, 300));
-      document.getElementById('gal-btn-more').click();
-      await new Promise(r => setTimeout(r, 500));
-      out.加载更多后格子 = document.querySelectorAll('#gal .gal-cell').length;
+    await sleep(800);
+    const g = document.getElementById('gal'), grid = document.getElementById('gal-grid');
+    const rectsOf = () => [...grid.querySelectorAll('.gal-cell')].map(c => c.getBoundingClientRect());
+    const 重叠对 = rs => {           // 两两求交：任何两格相交都算重叠
+      let n = 0;
+      for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
+        const a = rs[i], b = rs[j];
+        if (a.left < b.right - .5 && b.left < a.right - .5 && a.top < b.bottom - .5 && b.top < a.bottom - .5) n++;
+      }
+      return n;
+    };
+    const r0 = rectsOf();
+    const out = { 会话: s.name, 本会话图数: total, 首批格子: r0.length, 期望首批: Math.min(120, total), 画廊打开: g.classList.contains('on'),
+                  标题: (document.getElementById('gal-n') || {}).textContent,
+                  重叠对: 重叠对(r0), 全正方形: r0.every(r => Math.abs(r.width - r.height) <= 1 && r.width > 40),
+                  底色: getComputedStyle(g).backgroundColor,
+                  底部提示: document.getElementById('gal-more').textContent.trim(), 还有更多: total > r0.length };
+    if (out.还有更多) {           // 下滑到底 → 自动续载（不点按钮）
+      grid.scrollTop = grid.scrollHeight;
+      await sleep(900);
+      out.滑到底后格子 = grid.querySelectorAll('.gal-cell').length;
+      out.滑到底后重叠对 = 重叠对(rectsOf());
+      out.滑到底后提示 = document.getElementById('gal-more').textContent.trim();
     }
+    grid.querySelectorAll('.gal-cell')[0].click();
+    await sleep(700);
+    out.点缩略图后 = { 画廊关: !g.classList.contains('on'), 灯箱开: document.getElementById('lb').classList.contains('on'),
+                       计数: document.getElementById('lb-pos').textContent };
+    V.closeLB();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await new Promise(r => setTimeout(r, 200));
-    out.Esc后画廊关 = !document.getElementById('gal').classList.contains('on');
+    await sleep(200);
+    out.Esc后画廊关 = !g.classList.contains('on');
     return out;
   });
-  chk('会话内可查看全部图片：画廊格子数与图片数一致，点缩略图直接进灯箱',
-    gal.首屏格子 === Math.min(240, gal.本会话图数) && gal.首屏格子 > 0 && gal.画廊打开
-    && gal.点缩略图后.画廊关 && gal.点缩略图后.灯箱开 && gal.点缩略图后.计数 === '1 / ' + gal.本会话图数,
-    JSON.stringify(gal));
-  chk('画廊「显示更多」可续载，Esc 能关掉画廊',
-    !gal.有更多按钮 || gal.加载更多后格子 === Math.min(480, gal.本会话图数), JSON.stringify({ 更多: gal.有更多按钮, 加载后: gal.加载更多后格子, 总数: gal.本会话图数, Esc: gal.Esc后画廊关 }) + ' Esc关:' + gal.Esc后画廊关);
+  chk('图片画廊：固定尺寸正方形格子，绝不重叠',
+    gal.首批格子 === gal.期望首批 && gal.首批格子 > 0 && gal.重叠对 === 0 && gal.全正方形 && gal.画廊打开,
+    JSON.stringify({ 会话: gal.会话, 图数: gal.本会话图数, 首批: gal.首批格子, 重叠对: gal.重叠对, 全正方形: gal.全正方形, 标题: gal.标题 }));
+  chk('画廊底色不透明（不会透出后面的聊天，看着像重叠）',
+    /^rgb\(/.test(gal.底色) && !/rgba/.test(gal.底色), gal.底色);
+  chk('画廊和聊天记录一样「下滑自动续载」，点缩略图进灯箱、Esc 关闭',
+    (!gal.还有更多 || (gal.滑到底后格子 > gal.首批格子 && gal.滑到底后重叠对 === 0 && /已显示|共/.test(gal.滑到底后提示)))
+    && gal.点缩略图后.画廊关 && gal.点缩略图后.灯箱开 && /^1 \/ \d+$/.test(gal.点缩略图后.计数) && gal.Esc后画廊关,
+    JSON.stringify({ 还有更多: gal.还有更多, 滑到底后: gal.滑到底后格子, 重叠: gal.滑到底后重叠对, 提示: gal.滑到底后提示, 点后: gal.点缩略图后, Esc: gal.Esc后画廊关 }));
 
   // 收尾：恢复进入本节前的会话与干净状态
   await page.evaluate(async id => {

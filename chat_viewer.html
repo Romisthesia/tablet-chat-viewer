@@ -170,12 +170,15 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 .ppl-c{font-size:11.5px;color:var(--txt-dim);flex:none}
 .ppl-row.on .ppl-c{color:rgba(255,255,255,.85)}
 /* 会话内图片画廊（灯箱之下、设置之上） */
-#gal{position:fixed;inset:0;background:rgba(0,0,0,.84);z-index:65;display:none;flex-direction:column;padding:14px 18px}
+/* 底色必须不透明：原来 rgba(0,0,0,.84) 会把后面的聊天透出来，看着像「重叠」 */
+#gal{position:fixed;inset:0;background:#141414;z-index:65;display:none;flex-direction:column;padding:14px 18px}
 #gal.on{display:flex}
 #gal .gal-top{display:flex;align-items:center;gap:10px;color:#eee;font-size:14px;padding-bottom:10px}
 #gal .gal-top .sp{flex:1}
-#gal .gal-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px;align-content:start;padding-bottom:8px}
-#gal .gal-cell{aspect-ratio:1;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;cursor:zoom-in}
+/* 用固定尺寸正方形格子 + flex 换行：之前用 grid + aspect-ratio 时，懒加载图片的行高算不对，
+   同一列上下两格会压在一起（实测 t=55 与 t=93、高 128 的重叠）。flex 换行不可能重叠。 */
+#gal .gal-grid{flex:1;overflow-y:auto;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;padding-bottom:8px}
+#gal .gal-cell{width:126px;height:126px;flex:0 0 auto;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;cursor:zoom-in}
 #gal .gal-cell img{width:100%;height:100%;object-fit:cover;display:block}
 #gal .gal-cell.bad::after{content:'加载失败';color:#bbb;font-size:11px;display:flex;align-items:center;justify-content:center;height:100%}
 #gal .gal-empty{color:#bbb;padding:18px}
@@ -1147,11 +1150,12 @@ function closeLB() { $('lb').classList.remove('on'); }
 
 /* 会话内图片画廊：缩略图懒加载 + 分批渲染（某个会话有 3150 张，一次全塞进 DOM 会卡）。
    点缩略图 → 关画廊、开灯箱，左右翻的就是当前这批图（受「只看某人」筛选影响）。 */
-let galList = [], galShown = 0;
+let galList = [], galShown = 0, galBusy = false;
+const GAL_STEP = 120;          // 每批张数
 function openGallery() {
   if (!S.cur) return;
   const pp = $('ppl'); if (pp) pp.remove();
-  galList = sessionImages(); galShown = 0;
+  galList = sessionImages(); galShown = 0; galBusy = false;
   let g = $('gal');
   if (!g) {
     g = document.createElement('div'); g.id = 'gal'; document.body.appendChild(g);
@@ -1168,11 +1172,16 @@ function openGallery() {
   g.classList.add('on');
   $('gal-close').onclick = () => g.classList.remove('on');
   if (!galList.length) { $('gal-grid').innerHTML = '<div class="gal-empty">本会话没有图片</div>'; return; }
+  // 和聊天记录一样：往下滚到底就自动续载（不用手动点按钮）
+  const grid = $('gal-grid');
+  grid.onscroll = () => { if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 320) galMore(); };
   galMore();
 }
 function galMore() {
-  const grid = $('gal-grid'); if (!grid) return;
-  const step = 240, end = Math.min(galList.length, galShown + step), html = [];
+  const grid = $('gal-grid'); if (!grid || galBusy) return;
+  if (galShown >= galList.length) return;
+  galBusy = true;
+  const end = Math.min(galList.length, galShown + GAL_STEP), html = [];
   for (let k = galShown; k < end; k++) {
     const it = galList[k];
     html.push('<div class="gal-cell" data-at="' + k + '" title="' + fmtTime(it.ts) + (it.from ? ' · ' + esc(it.from) : '') + '">' +
@@ -1181,9 +1190,13 @@ function galMore() {
   grid.insertAdjacentHTML('beforeend', html.join(''));
   galShown = end;
   $('gal-more').innerHTML = galShown < galList.length
-    ? '<button id="gal-btn-more">显示更多（还有 ' + (galList.length - galShown).toLocaleString() + ' 张）</button>'
+    ? '<div class="gal-end">已显示 ' + galShown.toLocaleString() + ' / ' + galList.length.toLocaleString() + ' 张 · 继续下滑自动加载</div>'
     : '<div class="gal-end">— 共 ' + galList.length.toLocaleString() + ' 张 —</div>';
-  const b = $('gal-btn-more'); if (b) b.onclick = galMore;
+  setTimeout(() => {
+    galBusy = false;
+    // 窗口特别高、首批没铺满时补一批（没得滚也就不会触发滚动加载）
+    if (galShown < galList.length && grid.scrollHeight <= grid.clientHeight + 8) galMore();
+  }, 120);
 }
 function closeGallery() { const g = $('gal'); if (g) g.classList.remove('on'); }
 $('lb-prev').onclick = () => lbStep(-1);
