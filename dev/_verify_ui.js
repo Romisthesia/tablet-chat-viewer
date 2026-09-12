@@ -1114,6 +1114,51 @@ async function inkOffset(page, sel) {
   chk('侧栏行头像放大到 47px（拼图小格随之为整数 23px，格内文字更清楚）',
     ink.侧栏行头像边长 === 47, ink.侧栏行头像边长);
 
+  // ---------- 14. 按钮类控件：文字不可选中 + 指针与用途/状态对应 ----------
+  const ctrls = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const cs = el => getComputedStyle(el);
+    const rows = [];
+    const add = (控件, el, 期望指针) => rows.push({ 控件, 存在: !!el, 可选: el ? cs(el).userSelect : null, 指针: el ? cs(el).cursor : null, 期望指针 });
+    const $ = id => document.getElementById(id);
+
+    V.openGallery(); await sleep(400);
+    $('btn-set').click(); await sleep(400);
+    add('顶栏按钮', $('btn-set'), 'pointer');
+    add('侧栏列表标签', document.querySelector('#tabs .tab'), 'pointer');
+    add('搜索范围段', document.querySelector('#scope .seg'), 'pointer');
+    add('侧栏会话行', document.querySelector('#list .row'), 'pointer');
+    add('设置里的开关标签', document.querySelector('#dlg label.inline'), 'pointer');
+    add('命中卡片', document.querySelector('#hits .hit'), 'pointer');
+    add('画廊缩略图', document.querySelector('#gal .gal-cell'), 'zoom-in');
+    add('聊天里的图片', document.querySelector('#msgs .imgwrap'), 'zoom-in');
+    const dis = document.createElement('button'); dis.disabled = true; dis.textContent = '禁用';
+    $('dlg').appendChild(dis); await sleep(50);
+    add('禁用的按钮', dis, 'not-allowed');
+    dis.remove();
+    add('搜索输入框（应保持 text，且文字可选）', $('q'), 'text');
+    V.closeGallery(); $('dlg').classList.remove('on');
+    await sleep(200);
+    const w = document.querySelector('#msgs .imgwrap');
+    if (w) {
+      w.click(); await sleep(600);
+      add('灯箱切图按钮', $('lb-next'), 'pointer');
+      add('灯箱关闭按钮', $('lb-close'), 'pointer');
+      V.closeLB();
+    }
+    // 「发言人」下拉行
+    if (S.cur) { V.togglePpl(); await sleep(300); add('发言人下拉行', document.querySelector('#ppl .ppl-row'), 'pointer'); V.togglePpl(); }
+    return rows;
+  });
+  const 是输入框 = r => r.控件.indexOf('搜索输入框') === 0;
+  const 控件错 = ctrls.filter(r => r.存在 && !是输入框(r) && (r.可选 !== 'none' || r.指针 !== r.期望指针));
+  const 输入框 = ctrls.find(r => r.控件.indexOf('搜索输入框') === 0);
+  chk('按钮类控件的文字都不可选中（输入框除外）',
+    ctrls.filter(r => r.存在 && r.控件.indexOf('搜索输入框') < 0).length >= 7
+    && 控件错.length === 0 && 输入框 && 输入框.可选 !== 'none',
+    JSON.stringify(控件错.length ? 控件错 : ctrls.map(r => r.控件 + '=' + r.指针 + '/' + r.可选)));
+
   // 收尾：恢复进入本节前的会话与干净状态
   await page.evaluate(async id => {
     const V = window.__viewer;

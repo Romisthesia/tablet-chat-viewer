@@ -30,7 +30,14 @@ button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 button.primary:hover{opacity:.9}
 button.ghost{background:transparent;border-color:var(--side-bd)}
-button:disabled{opacity:.45;cursor:default}
+button:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---------- 按钮类控件统一：文字一律不可选中；指针与「用途/状态」对应 ----------
+   可点 = pointer；禁用 = not-allowed；看大图 = zoom-in（放大后可缩回 = zoom-out）；
+   输入框保持 text。后面更具体的规则（如 #lb img.zoom2）会覆盖这里的兜底值。 */
+button,.iconbtn,.tab,.seg,.row,.hit,.ppl-row,.gal-cell,.imgwrap,
+#dlg label.inline,#dlg .look-row label,#dlg .cache-row label{user-select:none;-webkit-user-select:none}
+.iconbtn,.tab{cursor:pointer}
 
 /* ---------- 导入页 ---------- */
 #intro{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--chat-bg);z-index:40;padding:20px}
@@ -52,20 +59,20 @@ button:disabled{opacity:.45;cursor:default}
 /* ---------- 侧栏 ---------- */
 #side{width:344px;min-width:260px;background:var(--side-bg);border-right:1px solid var(--side-bd);display:flex;flex-direction:column}
 #side-top{display:flex;align-items:center;gap:7px;padding:10px}
-#side-top .title{font-weight:600;font-size:14px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#side-top .title{font-weight:600;font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .iconbtn{width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;font-size:15px}
-#searchwrap{padding:0 10px 9px;display:flex;gap:6px;align-items:center}
+#searchwrap{padding:0 13px 10px;display:flex;gap:7px;align-items:center}
 #q{flex:1;min-width:0}
 #scope{display:flex;flex:0 0 auto;background:var(--card);border-radius:7px;padding:2px;gap:2px}
-#scope .seg{font-size:12px;padding:4px 8px;border-radius:5px;color:var(--txt-dim);cursor:pointer;white-space:nowrap;user-select:none}
+#scope .seg{font-size:12.5px;padding:4px 9px;border-radius:5px;color:var(--txt-dim);cursor:pointer;white-space:nowrap;user-select:none}
 #scope .seg.on{background:var(--accent);color:#fff;font-weight:500}
-#q{width:100%;padding:7px 11px;border-radius:7px;border:1px solid transparent;background:var(--card);color:var(--txt);font-family:inherit;font-size:13px;outline:none}
+#q{width:100%;padding:8px 11px;border-radius:7px;border:1px solid transparent;background:var(--card);color:var(--txt);font-family:inherit;font-size:13.5px;outline:none}
 #q:focus{border-color:var(--accent)}
-#tabs{display:flex;gap:4px;padding:0 10px 8px;font-size:12px}
-#tabs .tab{padding:3px 9px;border-radius:11px;background:transparent;color:var(--txt-dim)}
+#tabs{display:flex;gap:5px;padding:0 13px 9px;font-size:12.5px}
+#tabs .tab{padding:4px 10px;border-radius:12px;background:transparent;color:var(--txt-dim)}
 #tabs .tab.on{background:var(--accent);color:#fff;font-weight:500}
 #list{flex:1;overflow-y:auto;padding-bottom:10px}
-.row{display:flex;gap:10px;padding:9px 12px;cursor:pointer;align-items:center;user-select:none;caret-color:transparent}
+.row{display:flex;gap:12px;padding:10px 13px;cursor:pointer;align-items:center;user-select:none;caret-color:transparent}
 .row:hover{background:var(--side-hover)}
 .row.on{background:var(--side-sel)}
 /* 头像/侧栏行不该出现文字光标（浏览器「光标浏览 F7」或第三方脚本把页面设为可编辑时会冒出来），
@@ -74,11 +81,11 @@ button:disabled{opacity:.45;cursor:default}
 .row .av{width:47px;height:47px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500;overflow:hidden;padding:0}
 .row .av.gr{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1px;background:var(--img-ph)}
 .row .mid{flex:1;min-width:0}
-.row .n1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.row .nm{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .tm{font-size:11px;color:var(--txt-dim);flex:none}
-.row .n2{font-size:12px;color:var(--txt-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.tag{font-size:10px;padding:0 4px;border-radius:3px;border:1px solid var(--side-bd);color:var(--txt-dim);vertical-align:1px;margin-right:4px}
+.row .n1{display:flex;justify-content:space-between;gap:9px;align-items:baseline}
+.row .nm{font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tm{font-size:11.5px;color:var(--txt-dim);flex:none}
+.row .n2{font-size:13px;color:var(--txt-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+.tag{font-size:10.5px;padding:0 4.5px;border-radius:3px;border:1px solid var(--side-bd);color:var(--txt-dim);vertical-align:1.5px;margin-right:5px}
 #list .empty{color:var(--txt-dim);text-align:center;padding:26px 12px;font-size:12.5px;line-height:1.9}
 
 /* ---------- 聊天区 ---------- */
@@ -95,9 +102,10 @@ button:disabled{opacity:.45;cursor:default}
 /* 时间标记：日期条与间隔标记已合并成这一种 */
 .sys{text-align:center;margin:26px 0 24px}   /* 上下都要大于消息之间的 14px（相邻外边距取较大值） */
 .sys span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
-.m{display:flex;gap:9px;margin-bottom:14px;align-items:flex-start}   /* 消息间距要大于头像↔气泡的 9px */
+/* 头像 42px、与正文 14px（行高 1.62≈22.7px）相配；头像↔气泡 10px 仍小于消息间距 14px */
+.m{display:flex;gap:10px;margin-bottom:14px;align-items:flex-start}   /* 消息间距要大于头像↔气泡的 9px */
 .m.me{flex-direction:row-reverse}
-.m .av{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13.5px;cursor:default;user-select:none}
+.m .av{width:42px;height:42px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;cursor:default;user-select:none}
 .m .col{max-width:min(660px,72%);display:flex;flex-direction:column;min-width:0}
 .m.me .col{align-items:flex-end}
 .m .who{font-size:11.5px;color:var(--txt-dim);margin:0 2px 3px}
@@ -140,7 +148,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #lb .lb-top{height:46px;display:flex;align-items:center;gap:10px;padding:0 14px;color:#ddd;font-size:12.5px;flex:none}
 #lb .lb-top .sp{flex:1}
 #lb .lb-top .pos{color:#bbb;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
-#lb .lb-top button:disabled{opacity:.28;cursor:default}
+#lb .lb-top button:disabled{opacity:.28;cursor:not-allowed}
 /* 切图按钮：贴页面左右两端、竖直居中，做大一点保证可见性 */
 #lb .lb-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:3;
   width:60px;height:60px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.22);
@@ -149,7 +157,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
   backdrop-filter:blur(2px);transition:background .12s,transform .12s;user-select:none}
 #lb .lb-nav:hover:not(:disabled){background:rgba(255,255,255,.32)}
 #lb .lb-nav:active:not(:disabled){transform:translateY(-50%) scale(.94)}
-#lb .lb-nav:disabled{opacity:.2;cursor:default}
+#lb .lb-nav:disabled{opacity:.2;cursor:not-allowed}
 #lb .lb-nav svg{display:block}          /* 内联 SVG 默认按基线对齐，会造成视觉偏移 */
 #lb .lb-nav.left{left:22px}
 #lb .lb-nav.right{right:22px}
@@ -810,7 +818,7 @@ function msgHTML(m, idx, q) {
   const rowStyle = S.stamp
     ? 'display:flex;flex-direction:column;align-items:' + (me ? 'flex-end' : 'flex-start')
     : 'display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '');
-  return '<div class="m' + (me ? ' me' : '') + '" id="m-' + idx + '">' + avatar(m.fromName || (me ? S.meName : ''), 34) +
+  return '<div class="m' + (me ? ' me' : '') + '" id="m-' + idx + '">' + avatar(m.fromName || (me ? S.meName : ''), 42) +
     '<div class="col">' + (showWho ? '<div class="who">' + esc(m.fromName) + '</div>' : '') +
     '<div style="' + rowStyle + '">' + body + tm + '</div></div></div>';
 }
@@ -1113,7 +1121,7 @@ $('btn-export-pkg').onclick = async () => {
 function exportSessionHTML(s) {
   const css = 'body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f5f5f5;margin:0;padding:24px 14px;color:#191919}'
     + '.w{max-width:900px;margin:0 auto}.sys{text-align:center;margin:10px 0}.sys span{font-size:12px;color:#999;background:rgba(0,0,0,.06);padding:3px 10px;border-radius:9px}'
-    + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
+    + '.m{display:flex;gap:10px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:42px;height:42px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px}'
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
     + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;font-size:14px}'
     + '.m.me .bub{background:#95ec69}.bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
