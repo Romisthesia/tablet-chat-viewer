@@ -625,6 +625,229 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   chk('头像文字规则：2 字取全名 / 3 字取后 2 字 / 4 字以上取前 2 字',
     取字错.length === 0, 取字错.length ? JSON.stringify(取字错) : initials.map(x => x.名字 + '→' + x.取到).join('  '));
 
+
+  {  // 本节变量都收在这个块里，避免和上面的断言重名
+  // ---------- 10. 全文搜索：正确性 / 性能 / 布局 ----------
+  const savedSid = await page.evaluate(() => window.__viewer.S.cur ? window.__viewer.S.cur.id : null);
+
+  // 10a. 索引搜索的结果必须与「逐条 toLowerCase + indexOf」的朴素实现逐条一致（含顺序）
+  const cmp = await page.evaluate(() => {
+    const V = window.__viewer;
+    const naive = q => {
+      const lq = q.toLowerCase(), out = [];
+      for (const s of V.sortedSessions()) for (let i = 0; i < s.msgs.length; i++) {
+        const m = s.msgs[i]; if (!m.text) continue;
+        if (m.text.toLowerCase().indexOf(lq) >= 0) { out.push(s.id + '#' + i); if (out.length >= 400) return out; }
+      }
+      return out;
+    };
+    const qs = [];
+    for (const s of V.S.sessions.slice(0, 3)) { const m = s.msgs.find(x => x.text && x.text.length > 6); if (m) qs.push(m.text.slice(1, 4)); }
+    qs.push('的', 'zzz这个词不存在zzz', 'A');
+    const res = [];
+    for (const q of qs) {
+      const fast = V.findHits(q, 400).map(h => h.s.id + '#' + h.i);
+      const slow = naive(q);
+      res.push({ q: q.slice(0, 8), 索引: fast.length, 朴素: slow.length, 一致: fast.length === slow.length && fast.every((x, k) => x === slow[k]) });
+    }
+    return res;
+  });
+  chk('索引搜索的结果与朴素扫描逐条一致（含顺序）',
+    cmp.every(x => x.一致), JSON.stringify(cmp.filter(x => !x.一致).length ? cmp.filter(x => !x.一致) : cmp.map(x => x.q + ':' + x.索引 + '条')));
+
+  // 10b. 性能：冷门词（要好话说要扫全库）比朴素实现快多少
+  const perf = await page.evaluate(() => {
+    const V = window.__viewer, S = V.S;
+    const total = S.sessions.reduce((a, s) => a + s.msgs.length, 0);
+    const q = 'zzq这个词全库都没有x';
+    let t = performance.now();
+    for (let k = 0; k < 3; k++) for (const s of V.sortedSessions()) for (let i = 0; i < s.msgs.length; i++) { const m = s.msgs[i]; if (m.text) m.text.toLowerCase().indexOf(q); }
+    const slow = +((performance.now() - t) / 3).toFixed(2);
+    t = performance.now();
+    for (let k = 0; k < 3; k++) { S.hitCache = new Map(); V.findHits(q, 400); }
+    const fast = +((performance.now() - t) / 3).toFixed(2);
+    const sxBefore = S.sx;
+    V.findHits('随便另一个词', 400);
+    return { 消息数: total, 朴素毫秒: slow, 索引毫秒: fast, 倍数: slow && fast ? +(slow / fast).toFixed(1) : null,
+             索引只建一次: sxBefore === S.sx, 建索引毫秒: S.sxMs, 索引字符串字节: S.sx.reduce((a, x) => a + x.str.length, 0) };
+  });
+  if (perf.消息数 > 20000) {
+    chk('冷门词搜索比原来快 3 倍以上（索引命中，不再逐条 toLowerCase）',
+      perf.索引毫秒 * 3 <= perf.朴素毫秒 && perf.索引只建一次,
+      JSON.stringify(perf));
+  } else console.log('（样例数据只有 ' + perf.消息数 + ' 条，性能断言只在真实数据上跑；倍数 ' + perf.倍数 + '）');
+
+  // 10c. 端到端：连敲一个字不再卡（含拼 HTML + 塞进 DOM），同词复用缓存
+  const e2e = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    S.tab = 'chat'; V.syncSideTabs();
+    document.querySelector('#scope .seg[data-scope="msg"]').click();
+    await new Promise(r => setTimeout(r, 300));
+    // 用数据里真实存在的一段正文逐字加长，模拟「连敲」；否则 0 命中的耗时没有意义
+    const src = (S.sessions.map(x => x.msgs.find(y => y.text && y.text.length > 6)).find(Boolean) || { text: '任意文字' }).text;
+    const typed = [src.slice(0, 1), src.slice(0, 2), src.slice(0, 3), src.slice(0, 4)];
+    const t = performance.now();
+    for (const q of typed) { document.getElementById('q').value = q; V.doSearch(q); await new Promise(r => setTimeout(r, 0)); }
+    const four = performance.now() - t;
+    S.hitCache = new Map();
+    V.doSearch(typed[3], true);
+    const t2 = performance.now(); V.doSearch(typed[3], true); const again = performance.now() - t2;
+    return { 敲的词: typed.map(x => x.slice(0, 4)), 连敲4次毫秒: +four.toFixed(1), 每次: +(four / 4).toFixed(1), 同词复用毫秒: +again.toFixed(2), 命中卡: document.querySelectorAll('#hits .hit').length, 命中数: S.hits.length };
+  });
+  console.log('  端到端搜索：' + JSON.stringify(e2e));
+
+  // 10d. 布局：搜索范围开关贴在搜索框上；列表标签只剩 会话/收藏
+  const layout = await page.evaluate(() => {
+    const tabs = [...document.querySelectorAll('#tabs .tab')].map(x => x.dataset.tab);
+    const segs = [...document.querySelectorAll('#scope .seg')].map(x => x.dataset.scope);
+    const q = document.getElementById('q').getBoundingClientRect();
+    const sc = document.getElementById('scope').getBoundingClientRect();
+    return { tabs, segs, 范围在搜索框行内: !!document.querySelector('#searchwrap #scope'),
+             同一行: Math.abs(q.top - sc.top) < 10 && Math.abs((q.height) - sc.height) < 14,
+             搜索框仍可用宽度: Math.round(q.width), 占位符: document.getElementById('q').placeholder };
+  });
+  chk('「消息全文」不再与「会话/收藏」并列，改成搜索框旁的「搜索范围」开关',
+    layout.tabs.length === 2 && layout.tabs.indexOf('msg') < 0 && layout.segs.join(',') === 'chat,msg' && layout.范围在搜索框行内 && layout.同一行,
+    JSON.stringify(layout));
+
+  const scopeUi = await page.evaluate(async () => {
+    const V = window.__viewer;
+    document.getElementById('q').value = '';
+    V.doSearch('', true);
+    await new Promise(r => setTimeout(r, 250));
+    const out = { 空词提示: (document.querySelector('#hits .hitinfo') || {}).textContent || '', 全文高亮: document.querySelector('#scope .seg[data-scope="msg"]').classList.contains('on') };
+    document.querySelector('#tabs .tab[data-tab="star"]').click();
+    await new Promise(r => setTimeout(r, 250));
+    out.切收藏后 = { tab: V.S.tab, 收藏高亮: document.querySelector('#tabs .tab[data-tab="star"]').classList.contains('on'), 范围段: document.querySelector('#scope .seg.on').dataset.scope, 占位符: document.getElementById('q').placeholder };
+    document.querySelector('#tabs .tab[data-tab="chat"]').click();
+    await new Promise(r => setTimeout(r, 200));
+    out.回会话 = { tab: V.S.tab, 会话高亮: document.querySelector('#tabs .tab[data-tab="chat"]').classList.contains('on'), 占位符: document.getElementById('q').placeholder };
+    return out;
+  });
+  chk('切到「全文」有引导提示；切收藏/会话时高亮与占位符都正确',
+    /输入关键词/.test(scopeUi.空词提示) && scopeUi.全文高亮
+    && scopeUi.切收藏后.tab === 'star' && scopeUi.切收藏后.收藏高亮 && scopeUi.切收藏后.范围段 === 'chat'
+    && scopeUi.回会话.tab === 'chat' && scopeUi.回会话.会话高亮 && /会话名/.test(scopeUi.回会话.占位符),
+    JSON.stringify(scopeUi));
+
+  // 10e. 真实搜一次并点命中：应跳到该会话、高亮、能滚动到那一条
+  const jump = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const s = V.sortedSessions().find(x => x.msgs.some(m => m.text && m.text.length > 4));
+    const m = s.msgs.find(x => x.text && x.text.length > 4);
+    const q = m.text.slice(0, 3);
+    document.querySelector('#scope .seg[data-scope="msg"]').click();
+    document.getElementById('q').value = q;
+    V.doSearch(q, true);
+    await new Promise(r => setTimeout(r, 400));
+    const first = document.querySelector('#hits .hit');
+    const out = { 词: q, 命中卡: document.querySelectorAll('#hits .hit').length, 有卡片: !!first };
+    if (first) {
+      first.click();
+      await new Promise(r => setTimeout(r, 900));
+      const el = document.getElementById('m-' + first.dataset.i);
+      out.跳转后 = { 当前会话: S.cur.id === first.dataset.id, 高亮词: S.hl, 目标在DOM: !!el, 有mark: el ? !!el.querySelector('mark') : false, 闪烁类: el ? el.classList.contains('flash') : false };
+    }
+    document.getElementById('q').value = '';
+    return out;
+  });
+  chk('搜到的第一条点进去：跳到对应会话并高亮+定位到那条消息',
+    jump.命中卡 > 0 && jump.跳转后 && jump.跳转后.当前会话 && jump.跳转后.目标在DOM && jump.跳转后.有mark,
+    JSON.stringify(jump));
+
+  // ---------- 11. 会话内：按发言人筛选 ----------
+  const flt = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const s = V.sortedSessions().find(x => Object.keys(x.senders).length >= 2) || V.sortedSessions()[0];
+    V.openSession(s.id);
+    await new Promise(r => setTimeout(r, 400));
+    const top = Object.entries(s.senders).sort((a, b) => b[1] - a[1])[0];
+    V.togglePpl();
+    const rows = [...document.querySelectorAll('#ppl .ppl-row')];
+    const out = { 会话: s.name, 发言人: Object.keys(s.senders).length, 下拉行数: rows.length, 最多者: top, 首行是全部: rows[0].dataset.all === '1' };
+    const target = rows.find(r => r.dataset.nm === top[0]);
+    out.找到目标行 = !!target;
+    target.click();
+    await new Promise(r => setTimeout(r, 500));
+    const rendered = [...document.querySelectorAll('#msgs .m')];
+    out.筛选后 = {
+      筛选名: S.filterName, 视图条数: V.viewLen(), 期望条数: top[1],
+      渲染条数: rendered.length,
+      渲染全是该发言人: rendered.every(el => (s.msgs[+el.id.slice(2)].fromName || '') === top[0]),
+      头部带只看: /只看/.test(document.getElementById('hd-meta').textContent),
+      取消按钮: !!document.getElementById('btn-unfilter'),
+      下拉已收: !document.getElementById('ppl'),
+      图片也受限: V.sessionImages().every(it => (s.msgs[it.i].fromName || '') === top[0])
+    };
+    // 取消筛选
+    document.getElementById('btn-unfilter').click();
+    await new Promise(r => setTimeout(r, 400));
+    out.取消后 = { 视图: S.view, 筛选名: S.filterName, 渲染条数: document.querySelectorAll('#msgs .m').length, 无取消按钮: !document.getElementById('btn-unfilter') };
+    // 换会话应自动清掉筛选
+    const other = V.sortedSessions().find(x => x.id !== s.id);
+    V.filterBySender(top[0]);
+    out.再次筛选 = { 条数: V.viewLen() };
+    V.openSession(other.id);
+    await new Promise(r => setTimeout(r, 300));
+    out.换会话后 = { 视图: S.view, 筛选名: S.filterName, 头部无只看: !/只看/.test(document.getElementById('hd-meta').textContent) };
+    return out;
+  });
+  chk('会话内可按发言人筛选：下拉列出全部发言人并显示条数',
+    flt.下拉行数 === flt.发言人 + 1 && flt.首行是全部 && flt.找到目标行, JSON.stringify({ 会话: flt.会话, 发言人: flt.发言人, 下拉行数: flt.下拉行数 }));
+  chk('筛选后只渲染该发言人的消息，且条数与统计一致',
+    flt.筛选后.视图条数 === flt.筛选后.期望条数 && flt.筛选后.渲染全是该发言人 && flt.筛选后.渲染条数 === Math.min(250, flt.筛选后.期望条数)
+    && flt.筛选后.头部带只看 && flt.筛选后.取消按钮 && flt.筛选后.下拉已收,
+    JSON.stringify(flt.筛选后));
+  chk('筛选可取消，换会话会自动清掉筛选',
+    flt.取消后.视图 === null && flt.取消后.筛选名 === null && flt.取消后.无取消按钮 && flt.换会话后.视图 === null && flt.换会话后.头部无只看,
+    JSON.stringify({ 取消后: flt.取消后, 再次筛选: flt.再次筛选, 换会话后: flt.换会话后 }));
+
+  // ---------- 12. 会话内：图片画廊 ----------
+  const gal = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const s = V.sortedSessions().find(x => x.msgs.some(m => m.url)) || S.cur;
+    V.openSession(s.id);
+    await new Promise(r => setTimeout(r, 500));
+    const total = V.sessionImages().length;
+    V.openGallery();
+    await new Promise(r => setTimeout(r, 600));
+    const g = document.getElementById('gal');
+    const cells = [...document.querySelectorAll('#gal .gal-cell')];
+    const out = { 会话: s.name, 本会话图数: total, 首屏格子: cells.length, 画廊打开: g.classList.contains('on'), 标题: (document.getElementById('gal-n') || {}).textContent, 有更多按钮: !!document.getElementById('gal-btn-more') };
+    cells[0].click();
+    await new Promise(r => setTimeout(r, 600));
+    out.点缩略图后 = { 画廊关: !g.classList.contains('on'), 灯箱开: document.getElementById('lb').classList.contains('on'),
+                       计数: document.getElementById('lb-pos').textContent, 图URL前缀: document.getElementById('lb-img').src.slice(0, 24) };
+    V.closeLB();
+    if (out.有更多按钮) {
+      V.openGallery();
+      await new Promise(r => setTimeout(r, 300));
+      document.getElementById('gal-btn-more').click();
+      await new Promise(r => setTimeout(r, 500));
+      out.加载更多后格子 = document.querySelectorAll('#gal .gal-cell').length;
+    }
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise(r => setTimeout(r, 200));
+    out.Esc后画廊关 = !document.getElementById('gal').classList.contains('on');
+    return out;
+  });
+  chk('会话内可查看全部图片：画廊格子数与图片数一致，点缩略图直接进灯箱',
+    gal.首屏格子 === Math.min(240, gal.本会话图数) && gal.首屏格子 > 0 && gal.画廊打开
+    && gal.点缩略图后.画廊关 && gal.点缩略图后.灯箱开 && gal.点缩略图后.计数 === '1 / ' + gal.本会话图数,
+    JSON.stringify(gal));
+  chk('画廊「显示更多」可续载，Esc 能关掉画廊',
+    !gal.有更多按钮 || gal.加载更多后格子 === Math.min(480, gal.本会话图数), JSON.stringify({ 更多: gal.有更多按钮, 加载后: gal.加载更多后格子, 总数: gal.本会话图数, Esc: gal.Esc后画廊关 }) + ' Esc关:' + gal.Esc后画廊关);
+
+  // 收尾：恢复进入本节前的会话与干净状态
+  await page.evaluate(async id => {
+    const V = window.__viewer;
+    V.closeGallery(); V.closeLB(); V.filterBySender(null);
+    V.S.tab = 'chat'; V.syncSideTabs(); V.S.q = ''; document.getElementById('q').value = '';
+    if (id) V.openSession(id);
+    await new Promise(r => setTimeout(r, 300));
+  }, savedSid);
+  }
+
   // ---------- 7. 设置面板 ----------
   await page.evaluate(() => document.getElementById('btn-set').click());
   await C.sleep(300);

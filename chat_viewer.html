@@ -54,7 +54,11 @@ button:disabled{opacity:.45;cursor:default}
 #side-top{display:flex;align-items:center;gap:7px;padding:10px}
 #side-top .title{font-weight:600;font-size:14px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .iconbtn{width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;font-size:15px}
-#searchwrap{padding:0 10px 9px}
+#searchwrap{padding:0 10px 9px;display:flex;gap:6px;align-items:center}
+#q{flex:1;min-width:0}
+#scope{display:flex;flex:0 0 auto;background:var(--card);border-radius:7px;padding:2px;gap:2px}
+#scope .seg{font-size:12px;padding:4px 8px;border-radius:5px;color:var(--txt-dim);cursor:pointer;white-space:nowrap;user-select:none}
+#scope .seg.on{background:var(--accent);color:#fff;font-weight:500}
 #q{width:100%;padding:7px 11px;border-radius:7px;border:1px solid transparent;background:var(--card);color:var(--txt);font-family:inherit;font-size:13px;outline:none}
 #q:focus{border-color:var(--accent)}
 #tabs{display:flex;gap:4px;padding:0 10px 8px;font-size:12px}
@@ -79,7 +83,7 @@ button:disabled{opacity:.45;cursor:default}
 
 /* ---------- 聊天区 ---------- */
 #main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--chat-bg)}
-#hd{height:54px;flex:none;background:var(--hd-bg);border-bottom:1px solid var(--side-bd);display:flex;align-items:center;gap:10px;padding:0 16px}
+#hd{height:54px;flex:none;background:var(--hd-bg);border-bottom:1px solid var(--side-bd);display:flex;align-items:center;gap:10px;padding:0 16px;position:relative}
 #hd .h1{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #hd .meta{font-size:11.5px;color:var(--txt-dim);white-space:nowrap}
 #hd .sp{flex:1}
@@ -155,6 +159,28 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #lb img.zoom2{cursor:zoom-out}
 
 /* 设置面板 */
+/* 会话内「按发言人筛选」下拉（挂在 #hd 下方） */
+#ppl{position:absolute;right:16px;top:100%;margin-top:4px;width:288px;max-height:62vh;overflow-y:auto;background:var(--card);border:1px solid var(--side-bd);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.22);z-index:9;padding:6px}
+.ppl-h{font-size:11.5px;color:var(--txt-dim);padding:6px 8px}
+.ppl-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px}
+.ppl-row:hover{background:var(--side-hover)}
+.ppl-row.on{background:var(--accent);color:#fff}
+.ppl-av{width:20px;height:20px;border-radius:4px;overflow:hidden;flex:none;display:flex}
+.ppl-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ppl-c{font-size:11.5px;color:var(--txt-dim);flex:none}
+.ppl-row.on .ppl-c{color:rgba(255,255,255,.85)}
+/* 会话内图片画廊（灯箱之下、设置之上） */
+#gal{position:fixed;inset:0;background:rgba(0,0,0,.84);z-index:65;display:none;flex-direction:column;padding:14px 18px}
+#gal.on{display:flex}
+#gal .gal-top{display:flex;align-items:center;gap:10px;color:#eee;font-size:14px;padding-bottom:10px}
+#gal .gal-top .sp{flex:1}
+#gal .gal-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px;align-content:start;padding-bottom:8px}
+#gal .gal-cell{aspect-ratio:1;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;cursor:zoom-in}
+#gal .gal-cell img{width:100%;height:100%;object-fit:cover;display:block}
+#gal .gal-cell.bad::after{content:'加载失败';color:#bbb;font-size:11px;display:flex;align-items:center;justify-content:center;height:100%}
+#gal .gal-empty{color:#bbb;padding:18px}
+#gal .gal-end{color:#9a9a9a;font-size:12px;padding:10px 0 4px}
+#gal-more{text-align:center;padding:8px 0 2px}
 #dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:70}
 #dlg.on{display:flex}
 #dlg .card{max-width:460px}
@@ -198,10 +224,15 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
       <button class="iconbtn ghost" id="btn-set" title="设置">⚙</button>
       <button class="iconbtn ghost" id="btn-re" title="重新导入">⇱</button>
     </div>
-    <div id="searchwrap"><input id="q" placeholder="搜索会话 / 消息…" autocomplete="off"></div>
+    <div id="searchwrap">
+      <input id="q" placeholder="搜索会话名…" autocomplete="off">
+      <div id="scope" title="搜索范围：只搜会话名，或搜全部消息">
+        <div class="seg on" data-scope="chat">会话名</div>
+        <div class="seg" data-scope="msg">全文</div>
+      </div>
+    </div>
     <div id="tabs">
       <div class="tab on" data-tab="chat">会话</div>
-      <div class="tab" data-tab="msg">消息全文</div>
       <div class="tab" data-tab="star">★ 收藏</div>
     </div>
     <div id="list"></div>
@@ -323,6 +354,11 @@ const S = {
   q: '', tab: 'chat',
   theme: 'auto', showImg: true, sort: 'time',
   hits: [],              // 全文搜索结果
+  lastQuery: '',         // 上一次搜索的词（同一个词不重复算）
+  sx: null,              // 全文搜索索引：每会话一段小写正文长串 + 各消息起始偏移
+  sxSrc: null, sxSort: null, sxMs: 0, hitCache: null,
+  view: null,            // 「只看某个发言人」时的消息下标数组（null = 全部）
+  filterName: null,      // 当前筛选的发言人
   win: 250,              // 每批渲染条数
   importing: false,      // 用户已开始手动导入（用于阻止开机缓存恢复覆盖）
   remember: true,        // 是否把导入的数据缓存到浏览器（下次打开自动恢复）
@@ -606,16 +642,33 @@ function renderSidebar() {
   st.textContent = S.sessions.length ? '共 ' + S.sessions.length + ' 个会话 / ' + S.sessions.reduce((a, s) => a + s.n, 0).toLocaleString() + ' 条消息' : '聊天记录';
 }
 $('list').addEventListener('click', e => { const r = e.target.closest('.row'); if (r) openSession(r.dataset.id); });
+/* 侧栏两个控件各管一件事：标签 = 列表看什么（会话 / 收藏）；范围 = 搜索框搜什么（会话名 / 全部消息）。
+   之前「消息全文」和「会话/收藏」并排当同级标签，但它其实是搜索的范围开关，所以挪到搜索框旁边。 */
+function syncSideTabs() {
+  const listTab = S.tab === 'star' ? 'star' : 'chat';
+  [...document.querySelectorAll('#tabs .tab')].forEach(x => x.classList.toggle('on', x.dataset.tab === listTab));
+  [...document.querySelectorAll('#scope .seg')].forEach(x => x.classList.toggle('on', x.dataset.scope === (S.tab === 'msg' ? 'msg' : 'chat')));
+  $('q').placeholder = S.tab === 'msg' ? '搜索全部消息…' : '搜索会话名…';
+}
 $('tabs').addEventListener('click', e => {
   const t = e.target.closest('.tab'); if (!t) return;
-  [...document.querySelectorAll('#tabs .tab')].forEach(x => x.classList.toggle('on', x === t));
   S.tab = t.dataset.tab;
-  if (S.tab === 'msg' && S.q.trim()) doSearch(S.q.trim()); else { renderSidebar(); renderMain(); }
+  syncSideTabs();
+  if (S.tab === 'msg' && S.q.trim()) doSearch(S.q.trim(), true); else { renderSidebar(); renderMain(); }
+});
+$('scope').addEventListener('click', e => {
+  const g = e.target.closest('.seg'); if (!g) return;
+  const to = g.dataset.scope === 'msg' ? 'msg' : 'chat';
+  if (to === S.tab) return;
+  S.tab = to;
+  syncSideTabs();
+  if (S.tab === 'msg') doSearch(S.q.trim(), true); else { renderSidebar(); renderMain(); }
 });
 $('q').addEventListener('input', () => {
   S.q = $('q').value;
   clearTimeout(window.__qt);
-  window.__qt = setTimeout(() => { if (S.tab === 'msg') { doSearch(S.q.trim()); } else { renderSidebar(); autoOpen(); } }, 220);
+  // 索引化之后搜索只要几毫秒，防抖可以更短、手感更跟手
+  window.__qt = setTimeout(() => { if (S.tab === 'msg') { doSearch(S.q.trim()); } else { renderSidebar(); autoOpen(); } }, 150);
 });
 /* 搜索会话名时若只剩一个会话，自动打开 */
 function autoOpen() {
@@ -629,7 +682,8 @@ function openSession(id) {
   const s = S.sessions.find(x => x.id === id); if (!s) return;
   if (typeof closeLB === 'function') closeLB();      // 换会话就关灯箱，否则会留着上一个会话的图片列表
   S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.hits = []; S.hl = ''; S.tab = 'chat';
-  [...document.querySelectorAll('#tabs .tab')].forEach(x => x.classList.toggle('on', x.dataset.tab === 'chat'));
+  S.view = null; S.filterName = null;                  // 换会话就清掉「只看某人」的筛选
+  syncSideTabs();
   renderSidebar(); renderMain(); renderMsgs(false);
   requestAnimationFrame(() => { const el = $('scroll'); el.scrollTop = el.scrollHeight; });
 }
@@ -645,16 +699,56 @@ function renderMain() {
     $('scroll').innerHTML = '<div id="loadmore"></div><div id="msgs"></div><div id="hits"></div>';
   }
   $('hits').innerHTML = '';
+  const ppOld = $('ppl'); if (ppOld) ppOld.remove();
   hdName.textContent = s.name;
   hdMeta.textContent = (s.kind === 'GROUP' ? '群聊' : '私聊') + ' · ' + s.n.toLocaleString() + ' 条 · ' +
     new Date(s.first).toLocaleDateString('zh-CN') + ' ~ ' + new Date(s.last).toLocaleDateString('zh-CN') +
-    ' · 发言人 ' + Object.keys(s.senders).length;
-  tools.innerHTML = '<button class="ghost" id="btn-jump">跳转日期</button>' +
+    ' · 发言人 ' + Object.keys(s.senders).length +
+    (S.filterName ? '  ·  只看「' + S.filterName + '」（' + viewLen().toLocaleString() + ' 条）' : '');
+  tools.innerHTML = '<button class="ghost" id="btn-ppl">发言人</button>' +
+    '<button class="ghost" id="btn-gal">图片</button>' +
+    (S.filterName ? '<button class="ghost" id="btn-unfilter" title="取消筛选">✕ 只看：' + esc(S.filterName) + '</button>' : '') +
+    '<button class="ghost" id="btn-jump">跳转日期</button>' +
     '<button class="ghost" id="btn-exp1">导出本会话</button>' +
     '<button class="ghost" id="btn-top">回到最新</button>';
+  $('btn-ppl').onclick = togglePpl;
+  $('btn-gal').onclick = openGallery;
+  const uf = $('btn-unfilter'); if (uf) uf.onclick = () => filterBySender(null);
   $('btn-jump').onclick = jumpDate;
   $('btn-exp1').onclick = () => exportSessionHTML(s);
   $('btn-top').onclick = () => { const el = $('scroll'); el.scrollTop = el.scrollHeight; };
+}
+/* 「只看某个发言人」：S.view = 本会话内命中的消息下标数组（null 表示全部）。
+   渲染、翻页、灯箱、画廊统一走 viewLen/viewAt，保证各处一致。 */
+function viewLen() { const s = S.cur; return (S.view && s) ? S.view.length : (s ? s.n : 0); }
+function viewAt(k) { return S.view ? S.view[k] : k; }
+function filterBySender(nm) {
+  const s = S.cur; if (!s) return;
+  S.filterName = nm || null;
+  if (!nm) S.view = null;
+  else { const v = []; for (let i = 0; i < s.n; i++) if ((s.msgs[i].fromName || '') === nm) v.push(i); S.view = v; }
+  S.startIdx = Math.max(0, viewLen() - S.win);
+  renderMain(); renderMsgs(false);
+  requestAnimationFrame(() => { const el = $('scroll'); el.scrollTop = el.scrollHeight; });
+}
+/* 会话头部「发言人」下拉：列出本会话所有发言人（按发言数排序） */
+function togglePpl() {
+  const old = $('ppl'); if (old) { old.remove(); return; }
+  const s = S.cur; if (!s) return;
+  const rows = Object.entries(s.senders).sort((a, b) => b[1] - a[1]);
+  const p = document.createElement('div');
+  p.id = 'ppl';
+  p.innerHTML = '<div class="ppl-h">按发言人筛选（' + rows.length + ' 人）</div>' +
+    '<div class="ppl-row' + (S.filterName ? '' : ' on') + '" data-all="1">全部消息<span class="ppl-c">' + s.n.toLocaleString() + '</span></div>' +
+    rows.map(([nm, c]) => '<div class="ppl-row' + (S.filterName === nm ? ' on' : '') + '" data-nm="' + esc(nm) + '">' +
+      '<span class="ppl-av">' + avatarFill(nm, 20) + '</span><span class="ppl-n">' + esc(nm || '(未知)') + '</span>' +
+      '<span class="ppl-c">' + c.toLocaleString() + '</span></div>').join('');
+  $('hd').appendChild(p);
+  p.addEventListener('click', e => {
+    const r = e.target.closest('.ppl-row'); if (!r) return;
+    filterBySender(r.dataset.all ? null : (r.dataset.nm || ''));
+    p.remove();
+  });
 }
 function msgHTML(m, idx, q) {
   const me = S.meId !== null && String(m.fromId) === String(S.meId);
@@ -689,8 +783,9 @@ function renderMsgs(preserve) {
   const prevH = sc.scrollHeight, prevTop = sc.scrollTop;
   const q = S.hl || '';
   let html = '', lastTs = 0;
-  for (let i = S.startIdx; i < s.n; i++) {
-    const m = s.msgs[i];
+  const total = viewLen();
+  for (let k = S.startIdx; k < total; k++) {
+    const i = viewAt(k), m = s.msgs[i];
     if (needMark(lastTs, m.ts)) html += '<div class="sys"><span>' + fmtMark(m.ts) + '</span></div>';
     html += msgHTML(m, i, q);
     lastTs = m.ts;
@@ -715,7 +810,10 @@ function loadOlder() {
 }
 function scrollToIdx(i, flash) {
   const s = S.cur;
-  if (i < S.startIdx || i >= s.n) { S.startIdx = Math.max(0, i - 30); renderMsgs(false); }
+  // 筛选状态下，下标要先映射回「视图内位置」；不在筛选结果里就自动取消筛选
+  let pos = S.view ? S.view.indexOf(i) : i;
+  if (S.view && pos < 0) { S.view = null; S.filterName = null; renderMain(); pos = i; }
+  if (pos < S.startIdx || pos >= viewLen()) { S.startIdx = Math.max(0, pos - 30); renderMsgs(false); }
   const doScroll = () => {
     const el = $('m-' + i); if (!el) return;
     el.scrollIntoView({ block: 'center' });
@@ -761,24 +859,67 @@ function jumpDate() {
 }
 
 /* ==================== 5. 全文搜索 ==================== */
-function doSearch(q) {
-  q = (q || '').trim();
-  $('hits').innerHTML = ''; $('msgs').innerHTML = ''; $('loadmore').innerHTML = '';
-  $('hd-name').textContent = '全文搜索：' + q; $('hd-meta').textContent = ''; $('hd-tools').innerHTML = '';
-  if (!q) { renderSidebar(); return; }
-  const lq = q.toLowerCase(), hits = [], CAP = 400;
+/* 性能：原来每敲一个字都要把 19 万条正文逐条 toLowerCase() 再 indexOf()，
+   实测端到端平均 71.5ms/次（冷门词 118ms、全库无命中 85ms），敲快一点就明显卡。
+   改为一次性预建「小写正文索引」：每个会话把全部正文小写后拼成一长串（\u0001 分隔），
+   再记每条消息的起始偏移（Int32Array）。搜索变成在长串上做 indexOf，实测 5ms。
+   索引只在导入新数据或换排序时才重建；同词结果带缓存（退格/重敲瞬时）。 */
+const SEP = String.fromCharCode(1);
+function searchIndex() {
+  if (S.sx && S.sxSrc === S.sessions && S.sxSort === S.sort) return S.sx;
   const t0 = performance.now();
-  outer:
-  for (const s of sortedSessions()) {
-    for (let i = 0; i < s.msgs.length; i++) {
-      const m = s.msgs[i];
-      if (!m.text) continue;
-      if (m.text.toLowerCase().indexOf(lq) >= 0) {
-        hits.push({ s, i, m });
-        if (hits.length >= CAP) break outer;
+  S.sx = sortedSessions().map(s => {
+    let str = ''; const off = new Int32Array(s.msgs.length + 1);
+    for (let i = 0; i < s.msgs.length; i++) { off[i] = str.length; str += (s.msgs[i].text || '').toLowerCase() + SEP; }
+    off[s.msgs.length] = str.length;
+    return { s, str, off };
+  });
+  S.sxSrc = S.sessions; S.sxSort = S.sort; S.sxMs = Math.round(performance.now() - t0);
+  S.hitCache = new Map();
+  return S.sx;
+}
+function offToIdx(off, p) {         // 偏移 → 消息下标（二分）
+  let lo = 0, hi = off.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (off[mid] <= p) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+function findHits(q, cap) {
+  const key = cap + '|' + q;
+  if (S.hitCache && S.hitCache.has(key)) return S.hitCache.get(key);
+  const lq = q.toLowerCase(), out = [];
+  for (const x of searchIndex()) {
+    let p = x.str.indexOf(lq);
+    while (p >= 0) {
+      const i = offToIdx(x.off, p);
+      const end = (i + 1 < x.off.length) ? x.off[i + 1] : x.str.length;
+      if (i < x.s.msgs.length && p + lq.length <= end - 1) {
+        // 命中必须完整落在某一条消息里：跨「分隔符」的（上一条结尾 + 下一条开头凑出来的）丢掉。
+        // 一条消息只记一次（和原来的逐条扫描一致），然后直接跳到下一条开头 —— 既正确又快。
+        out.push({ s: x.s, i, m: x.s.msgs[i] });
+        if (out.length >= cap) break;
+        p = x.str.indexOf(lq, end);
+      } else {
+        p = x.str.indexOf(lq, p + 1);
       }
     }
+    if (out.length >= cap) break;
   }
+  if (S.hitCache) { if (S.hitCache.size >= 40) S.hitCache.clear(); S.hitCache.set(key, out); }
+  return out;
+}
+function doSearch(q, force) {
+  q = (q || '').trim();
+  // 同一个词、且界面已经就是这个结果 → 什么都不做（连敲同一个字、退格回来都不重复计算）
+  if (!force && q === S.lastQuery && $('hits').childElementCount && S.tab === 'msg') return;
+  $('hits').innerHTML = ''; $('msgs').innerHTML = ''; $('loadmore').innerHTML = '';
+  $('hd-name').textContent = '全文搜索：' + q; $('hd-meta').textContent = ''; $('hd-tools').innerHTML = '';
+  if (!q) {
+    $('hits').innerHTML = '<div class="hitinfo">输入关键词，搜索全部消息（可按分钟级时间、发言人筛选用右侧会话）</div>';
+    renderSidebar(); return;
+  }
+  const CAP = 400;
+  const t0 = performance.now();
+  const hits = findHits(q, CAP);
   S.hits = hits; S.lastQuery = q;
   const ms = Math.round(performance.now() - t0);
   let html = '<div class="hitinfo">找到 ' + hits.length + (hits.length >= CAP ? '+' : '') + ' 条（' + ms + 'ms）' +
@@ -842,6 +983,7 @@ function finishImport(r) {
   setTimeout(() => { $('intro').classList.add('hide'); afterLoad(); }, 500);
 }
 function afterLoad() {
+  S.sx = null; S.hitCache = null; S.view = null; S.filterName = null; S.lastQuery = '';   // 新数据 → 搜索索引重建
   $('side-title').textContent = '';
   renderSidebar();
   const list = sortedSessions();
@@ -974,8 +1116,9 @@ let lbZoom = false, lbList = [], lbIdx = -1;
 /* 当前会话里所有图片，按消息顺序 —— 灯箱靠它在图片间切换 */
 function sessionImages() {
   const s = S.cur; if (!s) return [];
-  const out = [];
-  for (let i = 0; i < s.n; i++) { const m = s.msgs[i]; if ((m.t === 'I' || m.t === 'N') && m.url) out.push({ i, url: m.url, w: m.w, h: m.h }); }
+  const out = [], total = viewLen();
+  // 跟着「只看某人」的筛选走：灯箱里左右翻的就是当前看到的那些图
+  for (let k = 0; k < total; k++) { const i = viewAt(k), m = s.msgs[i]; if ((m.t === 'I' || m.t === 'N') && m.url) out.push({ i, url: m.url, w: m.w, h: m.h, ts: m.ts, from: m.fromName }); }
   return out;
 }
 function renderLB() {
@@ -1001,6 +1144,48 @@ function lbStep(d) {
   renderLB();
 }
 function closeLB() { $('lb').classList.remove('on'); }
+
+/* 会话内图片画廊：缩略图懒加载 + 分批渲染（某个会话有 3150 张，一次全塞进 DOM 会卡）。
+   点缩略图 → 关画廊、开灯箱，左右翻的就是当前这批图（受「只看某人」筛选影响）。 */
+let galList = [], galShown = 0;
+function openGallery() {
+  if (!S.cur) return;
+  const pp = $('ppl'); if (pp) pp.remove();
+  galList = sessionImages(); galShown = 0;
+  let g = $('gal');
+  if (!g) {
+    g = document.createElement('div'); g.id = 'gal'; document.body.appendChild(g);
+    g.addEventListener('click', e => {
+      if (e.target.id === 'gal') { g.classList.remove('on'); return; }   // 点空白处关掉
+      const c = e.target.closest('.gal-cell'); if (!c) return;
+      g.classList.remove('on'); openLB(+c.dataset.at, galList);
+    });
+  }
+  g.innerHTML = '<div class="gal-top"><b>本会话图片</b>' +
+    '<span id="gal-n">共 ' + galList.length.toLocaleString() + ' 张' + (S.filterName ? '（只看「' + esc(S.filterName) + '」）' : '') + '</span>' +
+    '<span class="sp"></span><button class="ghost" id="gal-close">关闭 (Esc)</button></div>' +
+    '<div class="gal-grid" id="gal-grid"></div><div id="gal-more"></div>';
+  g.classList.add('on');
+  $('gal-close').onclick = () => g.classList.remove('on');
+  if (!galList.length) { $('gal-grid').innerHTML = '<div class="gal-empty">本会话没有图片</div>'; return; }
+  galMore();
+}
+function galMore() {
+  const grid = $('gal-grid'); if (!grid) return;
+  const step = 240, end = Math.min(galList.length, galShown + step), html = [];
+  for (let k = galShown; k < end; k++) {
+    const it = galList[k];
+    html.push('<div class="gal-cell" data-at="' + k + '" title="' + fmtTime(it.ts) + (it.from ? ' · ' + esc(it.from) : '') + '">' +
+      '<img loading="lazy" decoding="async" src="' + esc(it.url) + '" alt="" onerror="this.parentNode.classList.add(\'bad\')"></div>');
+  }
+  grid.insertAdjacentHTML('beforeend', html.join(''));
+  galShown = end;
+  $('gal-more').innerHTML = galShown < galList.length
+    ? '<button id="gal-btn-more">显示更多（还有 ' + (galList.length - galShown).toLocaleString() + ' 张）</button>'
+    : '<div class="gal-end">— 共 ' + galList.length.toLocaleString() + ' 张 —</div>';
+  const b = $('gal-btn-more'); if (b) b.onclick = galMore;
+}
+function closeGallery() { const g = $('gal'); if (g) g.classList.remove('on'); }
 $('lb-prev').onclick = () => lbStep(-1);
 $('lb-next').onclick = () => lbStep(1);
 $('lb-close').onclick = closeLB;
@@ -1232,8 +1417,17 @@ function shrinkImage(file, max) {
   });
 }
 $('btn-theme').onclick = () => { setTheme(resolvedTheme() === 'dark' ? 'light' : 'dark'); saveConf(); };
+document.addEventListener('click', e => {
+  const pp = $('ppl'); if (!pp) return;
+  if (e.target.closest('#ppl') || e.target.closest('#btn-ppl')) return;   // 点下拉内部/按钮由它们自己处理
+  pp.remove();
+});
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeLB(); $('dlg').classList.remove('on'); }
+  if (e.key === 'Escape') {
+    const g = $('gal'); if (g && g.classList.contains('on')) { closeGallery(); return; }   // 画廊优先关
+    closeLB(); $('dlg').classList.remove('on');
+    const pp = $('ppl'); if (pp) pp.remove();
+  }
   else if ($('lb').classList.contains('on') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
     e.preventDefault();
     lbStep(e.key === 'ArrowLeft' ? -1 : 1);        // 灯箱打开时左右方向键切图
@@ -1334,7 +1528,8 @@ async function boot() {
 /* 暴露内部接口（自动化验证用） */
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
-  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf };
+  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf,
+  doSearch, findHits, searchIndex, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
 boot();
 </script>
 </body>
