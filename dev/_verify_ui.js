@@ -42,6 +42,15 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
         chatBg: cs(document.getElementById('main')).backgroundColor,
         overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
         rowHeights: [...document.querySelectorAll('#msgs .m')].map(r => Math.round(r.getBoundingClientRect().height)),
+        avGap: (() => { const m = document.querySelector('#msgs .m:not(.me)'); if (!m) return null; const av = m.querySelector('.av'), bb = m.querySelector('.bub'); return av && bb ? Math.round(bb.getBoundingClientRect().left - av.getBoundingClientRect().right) : null; })(),
+        相邻消息间距: (() => {
+          const kids = [...document.querySelectorAll('#msgs > *')]; const out = [];
+          for (let i = 1; i < kids.length; i++) {
+            if (!kids[i].classList.contains('m') || !kids[i - 1].classList.contains('m')) continue;   // 中间夹着时间标记的不算
+            out.push(Math.round(kids[i].getBoundingClientRect().top - kids[i - 1].getBoundingClientRect().bottom));
+          }
+          return out;
+        })(),
         fontSize: cs(other || document.body).fontSize
       };
     });
@@ -55,6 +64,9 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     chk('对方气泡是白色', geo.otherBg === 'rgb(255, 255, 255)', geo.otherBg);
     chk('正文字号 14px', geo.fontSize === '14px', geo.fontSize);
     chk('气泡高度均正常', geo.rowHeights.length > 0 && geo.rowHeights.every(h => h > 0), geo.rowHeights.join(','));
+    chk('相邻消息的垂直间距 > 头像与气泡的间距',
+      geo.avGap > 0 && geo.相邻消息间距.length > 0 && Math.min(...geo.相邻消息间距) > geo.avGap,
+      '消息间距最小 ' + Math.min(...geo.相邻消息间距) + 'px vs 头像↔气泡 ' + geo.avGap + 'px（取 ' + geo.相邻消息间距.slice(0, 5).join('/') + '）');
   }
 
   // ---------- 2. 群聊：图片 + 发言人昵称 + 分批载入 ----------
@@ -134,6 +146,25 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       return { 宽: img.naturalWidth, 高: img.naturalHeight, 来源: img.src.slice(0, 34) };
     });
     chk('大图真实加载出来（不是占位/破图）', lbLoad.宽 > 0 && lbLoad.高 > 0, JSON.stringify(lbLoad));
+
+    const navInk = await page.evaluate(() => {
+      const c = el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+      const out = {};
+      for (const id of ['lb-prev', 'lb-next']) {
+        const btn = document.getElementById(id), path = btn.querySelector('svg path');
+        const b = c(btn), pth = c(path);
+        out[id] = { 水平偏差: +(pth.x - b.x).toFixed(2), 垂直偏差: +(pth.y - b.y).toFixed(2) };
+      }
+      // 顺带量一下纯文字字形（旧做法）的墨迹偏移，作为对照
+      const cv = document.createElement('canvas').getContext('2d');
+      cv.font = '30px -apple-system, "Segoe UI", sans-serif';
+      const mm = cv.measureText('‹');
+      out.旧文字字形垂直偏移 = +((mm.actualBoundingBoxAscent - mm.actualBoundingBoxDescent) / 2).toFixed(2);
+      return out;
+    });
+    chk('箭头墨迹在按钮正中（垂直不再偏）',
+      Math.abs(navInk['lb-prev'].垂直偏差) <= 1 && Math.abs(navInk['lb-next'].垂直偏差) <= 1,
+      JSON.stringify(navInk));
 
     const navGeo = await page.evaluate(() => {
       const p = document.getElementById('lb-prev').getBoundingClientRect();

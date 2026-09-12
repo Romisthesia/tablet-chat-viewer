@@ -85,9 +85,9 @@ button:disabled{opacity:.45;cursor:default}
 #loadmore button{font-size:12px;padding:4px 12px;border-radius:14px;background:transparent;border-color:var(--side-bd);color:var(--txt-dim)}
 #msgs{padding:0 18px;max-width:1000px;margin:0 auto}
 /* 时间标记：日期条与间隔标记已合并成这一种 */
-.sys{text-align:center;margin:12px 0 10px}
+.sys{text-align:center;margin:16px 0 12px}
 .sys span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
-.m{display:flex;gap:9px;margin-bottom:6px;align-items:flex-start}
+.m{display:flex;gap:9px;margin-bottom:14px;align-items:flex-start}   /* 消息间距要大于头像↔气泡的 9px */
 .m.me{flex-direction:row-reverse}
 .m .av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13.5px;cursor:default;user-select:none}
 .m .col{max-width:min(660px,72%);display:flex;flex-direction:column;min-width:0}
@@ -136,12 +136,13 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 /* 切图按钮：贴页面左右两端、竖直居中，做大一点保证可见性 */
 #lb .lb-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:3;
   width:60px;height:60px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.22);
-  background:rgba(255,255,255,.14);color:#fff;font-size:30px;line-height:1;
+  background:rgba(255,255,255,.14);color:#fff;
   display:flex;align-items:center;justify-content:center;cursor:pointer;
   backdrop-filter:blur(2px);transition:background .12s,transform .12s;user-select:none}
 #lb .lb-nav:hover:not(:disabled){background:rgba(255,255,255,.32)}
 #lb .lb-nav:active:not(:disabled){transform:translateY(-50%) scale(.94)}
 #lb .lb-nav:disabled{opacity:.2;cursor:default}
+#lb .lb-nav svg{display:block}          /* 内联 SVG 默认按基线对齐，会造成视觉偏移 */
 #lb .lb-nav.left{left:22px}
 #lb .lb-nav.right{right:22px}
 #lb .lb-top button{background:rgba(255,255,255,.12);color:#eee;border-color:transparent}
@@ -238,8 +239,8 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
     <button id="lb-open">新窗口打开</button><button id="lb-copy">复制链接</button><button id="lb-close">关闭 (Esc)</button>
   </div>
   <div class="lb-body"><img id="lb-img" alt=""></div>
-  <button id="lb-prev" class="lb-nav left" title="上一张（←）" aria-label="上一张">‹</button>
-  <button id="lb-next" class="lb-nav right" title="下一张（→）" aria-label="下一张">›</button>
+  <button id="lb-prev" class="lb-nav left" title="上一张（←）" aria-label="上一张"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <button id="lb-next" class="lb-nav right" title="下一张（→）" aria-label="下一张"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
 </div>
 
 <div id="dlg">
