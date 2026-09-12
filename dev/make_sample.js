@@ -7,7 +7,7 @@
  *   CHAT_DIR 之类的路径全部虚构。
  *   node make_sample.js
  */
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), zlib = require('zlib');
 const OUTDIR = path.join(__dirname, '..', 'sample_data');
 const ME = 9001, ME_NAME = '林小舟';
 
@@ -17,6 +17,49 @@ const S = {
   peer:  { id: 4001, name: '陈屿', type: 'SINGLE' }
 };
 
+/* 造一张纯色渐变的 PNG，用 data URL 内联进消息里 —— 样例数据因此不依赖任何外网图床，
+   离线也能跑图片相关测试（真实数据的图是阿里云 OSS 链接）。*/
+let CRC_T = null;
+function crc32(buf) {
+  if (!CRC_T) {
+    CRC_T = [];
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); CRC_T[n] = c >>> 0; }
+  }
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function pngDataUrl(w, h, c1, c2) {
+  const stride = w * 3 + 1;
+  const raw = Buffer.alloc(stride * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * stride] = 0;                                        // filter: none
+    for (let x = 0; x < w; x++) {
+      const k = x / Math.max(1, w - 1), o = y * stride + 1 + x * 3;
+      raw[o] = Math.round(c1[0] + (c2[0] - c1[0]) * k);
+      raw[o + 1] = Math.round(c1[1] + (c2[1] - c1[1]) * k);
+      raw[o + 2] = Math.round(c1[2] + (c2[2] - c1[2]) * k);
+    }
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body), 0);
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;   // 8bit 真彩
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))
+  ]);
+  return 'data:image/png;base64,' + png.toString('base64');
+}
+/* 图片消息的 content 就是一段 JSON（和真实导出格式一致） */
+function jimg(w, h, c1, c2) {
+  return JSON.stringify({ serverimg_url: pngDataUrl(w, h, c1, c2), img_width: w, img_height: h });
+}
 // [天数偏移, 时:分, fromId, 昵称, 类型, 内容]
 const rows = [
   [0, '08:12', 4001, '陈屿', 'TEXT', '早，今天物理作业是第几页？'],
@@ -30,7 +73,9 @@ const rows = [
   [5, '21:02', 4001, '陈屿', 'TEXT', '睡了吗？帮我看下这段代码为啥报错\nvar array = [1, 2];\nconsole.log(array)'],
   [5, '21:20', ME, ME_NAME, 'TEXT', '少了个分号？看着不像。你把完整报错发我'],
   [5, '21:22', 4001, '陈屿', 'TEXT', 'TypeError: Cannot read properties of undefined'],
-  [5, '21:25', ME, ME_NAME, 'TEXT', '那就是 array 本身没定义，是不是 return 写在了回调外面']
+  [5, '21:25', ME, ME_NAME, 'TEXT', '那就是 array 本身没定义，是不是 return 写在了回调外面'],
+  [5, '21:30', ME, ME_NAME, 'IMAGE', jimg(240, 160, [42, 122, 214], [12, 60, 130])],
+  [5, '21:31', 4001, '陈屿', 'IMAGE', jimg(200, 150, [232, 164, 62], [150, 84, 22])]
 ];
 
 const groupRows = [
@@ -65,7 +110,9 @@ const clubRows = [
   [2, '19:48', 6001, '社长·方澈', 'TEXT', '这个坑人人都踩一次 😂'],
   [7, '20:10', 6002, '副社·佘丹', 'TEXT', '仓库地址换到 https://example.invalid/team/robotics 了，旧的别再用'],
   [7, '20:12', ME, ME_NAME, 'TEXT', '收到，我把本地 remote 也改一下'],
-  [11, '21:00', 6001, '社长·方澈', 'TEXT', '下周比赛报名截止周三，还没定的今晚定下来']
+  [11, '21:00', 6001, '社长·方澈', 'TEXT', '下周比赛报名截止周三，还没定的今晚定下来'],
+  [11, '21:04', 6002, '副社·佘丹', 'IMAGE', jimg(260, 180, [80, 198, 158], [18, 108, 88])],
+  [11, '21:06', ME, ME_NAME, 'IMAGE', jimg(220, 170, [198, 92, 158], [92, 20, 92])]
 ];
 
 function esc(s) {
@@ -103,3 +150,4 @@ for (const [name, sess, list] of jobs) {
   console.log(`${name}.html  ${list.length} 条`);
 }
 console.log(`\n已生成到 ${OUTDIR}：${jobs.length} 个会话 / ${total} 条虚构消息（我 = ${ME_NAME}）`);
+console.log('其中图片消息用内联 data URL 渐变图，离线可加载，不依赖外网图床。');

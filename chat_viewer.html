@@ -96,7 +96,9 @@ button:disabled{opacity:.45;cursor:default}
 .m .who{font-size:11.5px;color:var(--txt-dim);margin:0 2px 3px}
 .bub{position:relative;background:var(--bub-other);color:var(--bub-other-txt);border-radius:var(--radius);padding:8px 12px;line-height:1.62;word-break:break-word;white-space:pre-wrap;box-shadow:var(--shadow);font-size:14px}
 .m.me .bub{background:var(--bub-me);color:var(--bub-me-txt)}
-.bub.imgp{padding:4px;background:transparent;box-shadow:none}
+/* 图片消息不该有气泡底色：.m.me .bub 的优先级(0,3,0)高于 .bub.imgp(0,2,0)，
+   所以必须带上 .m.me 一起写，否则我方图片会被套上绿色气泡 */
+.bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}
 /* 时间戳在气泡外侧（不是气泡内），所以选择器必须是 .col .tm —— 之前写 .bub .tm 一直没生效 */
 .col .tm{font-size:10.5px;color:var(--txt-dim);white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}
 .m.me .col .tm{color:inherit;opacity:.5}
@@ -133,6 +135,9 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #lb.on{display:flex}
 #lb .lb-top{height:46px;display:flex;align-items:center;gap:10px;padding:0 14px;color:#ddd;font-size:12.5px;flex:none}
 #lb .lb-top .sp{flex:1}
+#lb .lb-top .pos{color:#bbb;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+#lb .lb-top #lb-prev,#lb .lb-top #lb-next{font-size:17px;line-height:1;padding:3px 13px}
+#lb .lb-top button:disabled{opacity:.28;cursor:default}
 #lb .lb-top button{background:rgba(255,255,255,.12);color:#eee;border-color:transparent}
 #lb .lb-body{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
 #lb img{max-width:96%;max-height:92%;cursor:zoom-in;transition:transform .12s}
@@ -223,7 +228,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 <div class="dropmask" id="dropmask">松开即可导入</div>
 
 <div id="lb">
-  <div class="lb-top"><span id="lb-info"></span><span class="sp"></span>
+  <div class="lb-top"><button id="lb-prev" title="上一张（←）">‹</button><button id="lb-next" title="下一张（→）">›</button><span id="lb-pos" class="pos"></span><span id="lb-info"></span><span class="sp"></span>
     <button id="lb-open">新窗口打开</button><button id="lb-copy">复制链接</button><button id="lb-close">关闭 (Esc)</button>
   </div>
   <div class="lb-body"><img id="lb-img" alt=""></div>
@@ -543,6 +548,7 @@ function autoOpen() {
 /* ==================== 4. 渲染聊天 ==================== */
 function openSession(id) {
   const s = S.sessions.find(x => x.id === id); if (!s) return;
+  if (typeof closeLB === 'function') closeLB();      // 换会话就关灯箱，否则会留着上一个会话的图片列表
   S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.hits = []; S.hl = ''; S.tab = 'chat';
   [...document.querySelectorAll('#tabs .tab')].forEach(x => x.classList.toggle('on', x.dataset.tab === 'chat'));
   renderSidebar(); renderMain(); renderMsgs(false);
@@ -654,7 +660,12 @@ $('btn-new').onclick = () => { const sc = $('scroll'); sc.scrollTop = sc.scrollH
 /* 点图放大 */
 $('msgs').addEventListener('click', e => {
   const w = e.target.closest('.imgwrap'); if (!w) return;
-  if (w.dataset.url) openLB(w.dataset.url, w.dataset.w, w.dataset.h);
+  if (!w.dataset.url) return;
+  const list = sessionImages();
+  const mi = +(w.parentElement && w.parentElement.dataset.i);      // 该图片所在消息的下标
+  let at = list.findIndex(x => x.i === mi);
+  if (at < 0) at = list.findIndex(x => x.url === w.dataset.url);   // 兜底：按下标找不到就按 URL
+  openLB(at < 0 ? 0 : at, list);
 });
 window.imgErr = function (img) {
   const p = img.parentElement; if (!p) return;
@@ -849,7 +860,7 @@ function exportSessionHTML(s) {
     + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
     + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:14px}'
-    + '.m.me .bub{background:#95ec69}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
+    + '.m.me .bub{background:#95ec69}.bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
     + '.tm.side{margin:0 7px;align-self:flex-end}.tm.blk{margin-top:3px;font-size:10px;color:#999}'
     + '.imgwrap img{max-width:280px;max-height:280px;border-radius:5px}h1{font-size:17px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#999;font-size:12px;margin-bottom:20px}';
   let h = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.name) + '</title><style>' + css + '</style></head><body><div class="w">'
@@ -864,7 +875,7 @@ function exportSessionHTML(s) {
     else if (m.url) {
       const bx = imgBox(m.w, m.h);
       const sz = bx.known ? ' width="' + bx.w + '" height="' + bx.h + '"' : '';
-      body = '<div class="bub" style="padding:4px"><div class="imgwrap"><img loading="lazy"' + sz + ' src="' + esc(m.url) + '"></div></div>';
+      body = '<div class="bub imgp"><div class="imgwrap"><img loading="lazy"' + sz + ' src="' + esc(m.url) + '"></div></div>';
     }
     else body = '<div class="bub">[' + (m.t === 'N' ? '笔记' : '图片') + ']</div>';
     h += '<div class="m' + (me ? ' me' : '') + '"><div class="av" style="background:' + colorOf(m.fromName) + '">' + esc(initialOf(m.fromName)) + '</div>'
@@ -884,18 +895,41 @@ $('btn-export-all').onclick = async () => {
 };
 
 /* ==================== 8. 灯箱 ==================== */
-let lbZoom = false;
-function openLB(url, w, h) {
-  if (!url) return;
+let lbZoom = false, lbList = [], lbIdx = -1;
+/* 当前会话里所有图片，按消息顺序 —— 灯箱靠它在图片间切换 */
+function sessionImages() {
+  const s = S.cur; if (!s) return [];
+  const out = [];
+  for (let i = 0; i < s.n; i++) { const m = s.msgs[i]; if ((m.t === 'I' || m.t === 'N') && m.url) out.push({ i, url: m.url, w: m.w, h: m.h }); }
+  return out;
+}
+function renderLB() {
+  const it = lbList[lbIdx]; if (!it) return;
   const img = $('lb-img');
-  img.src = url; img.classList.remove('zoom2'); lbZoom = false; img.style.transform = '';
-  $('lb-info').textContent = (w && h ? w + ' × ' + h + '  ·  ' : '') + url;
-  $('lb-open').onclick = () => window.open(url, '_blank');
-  $('lb-copy').onclick = async () => { try { await navigator.clipboard.writeText(url); $('lb-copy').textContent = '已复制'; setTimeout(() => $('lb-copy').textContent = '复制链接', 1200); } catch (e) { prompt('手动复制：', url); } };
+  img.src = it.url; img.classList.remove('zoom2'); lbZoom = false; img.style.transform = '';
+  $('lb-info').textContent = (it.w && it.h ? it.w + ' × ' + it.h + '  ·  ' : '') + it.url;
+  $('lb-pos').textContent = lbList.length > 1 ? (lbIdx + 1) + ' / ' + lbList.length : '';
+  $('lb-prev').disabled = $('lb-next').disabled = lbList.length < 2;
+  $('lb-open').onclick = () => window.open(it.url, '_blank');
+  $('lb-copy').onclick = async () => { try { await navigator.clipboard.writeText(it.url); $('lb-copy').textContent = '已复制'; setTimeout(() => $('lb-copy').textContent = '复制链接', 1200); } catch (e) { prompt('手动复制：', it.url); } };
+}
+function openLB(idx, list) {
+  lbList = list || sessionImages();
+  if (!lbList.length) return;
+  lbIdx = Math.max(0, Math.min(idx, lbList.length - 1));
+  renderLB();
   $('lb').classList.add('on');
 }
-$('lb-close').onclick = () => $('lb').classList.remove('on');
-$('lb').addEventListener('click', e => { if (e.target.id === 'lb' || e.target.classList.contains('lb-body')) $('lb').classList.remove('on'); });
+function lbStep(d) {
+  if (lbList.length < 2) return;
+  lbIdx = (lbIdx + d + lbList.length) % lbList.length;      // 首尾循环
+  renderLB();
+}
+function closeLB() { $('lb').classList.remove('on'); }
+$('lb-prev').onclick = () => lbStep(-1);
+$('lb-next').onclick = () => lbStep(1);
+$('lb-close').onclick = closeLB;
+$('lb').addEventListener('click', e => { if (e.target.id === 'lb' || e.target.classList.contains('lb-body')) closeLB(); });
 $('lb-img').addEventListener('click', e => {
   lbZoom = !lbZoom;
   const img = $('lb-img');
@@ -1124,7 +1158,11 @@ function shrinkImage(file, max) {
 }
 $('btn-theme').onclick = () => { setTheme(resolvedTheme() === 'dark' ? 'light' : 'dark'); saveConf(); };
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { $('lb').classList.remove('on'); $('dlg').classList.remove('on'); }
+  if (e.key === 'Escape') { closeLB(); $('dlg').classList.remove('on'); }
+  else if ($('lb').classList.contains('on') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    e.preventDefault();
+    lbStep(e.key === 'ArrowLeft' ? -1 : 1);        // 灯箱打开时左右方向键切图
+  }
   if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); }
 });
 function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify({ theme: S.theme, sort: S.sort, showImg: S.showImg, meId: S.meId, meName: S.meName, remember: S.remember,
@@ -1220,7 +1258,8 @@ async function boot() {
 }
 /* 暴露内部接口（自动化验证用） */
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
-  setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect };
+  setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
+  openLB, lbStep, closeLB, sessionImages };
 boot();
 </script>
 </body>

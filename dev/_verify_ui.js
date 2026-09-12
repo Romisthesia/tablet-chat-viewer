@@ -96,7 +96,15 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     chk('“再往前2000条”真的往前2000条', after.startIdx <= before - 2000 && after.rendered > 2000, `startIdx ${before}→${after.startIdx}, rendered=${after.rendered}`);
   } else console.log('（会话比渲染窗口还短，跳过分批载入测试）');
 
-  // ---------- 4. 灯箱 ----------
+  // ---------- 4. 灯箱：打开 / 切换 / 关闭 ----------
+  const lbState = () => page.evaluate(() => ({
+    on: document.getElementById('lb').classList.contains('on'),
+    src: document.getElementById('lb-img').src,
+    pos: document.getElementById('lb-pos').textContent,
+    prevOff: document.getElementById('lb-prev').disabled,
+    nextOff: document.getElementById('lb-next').disabled,
+    total: window.__viewer.sessionImages().length
+  }));
   if (pick.anyImg) {
     await page.evaluate(id => window.__viewer.openSession(id), pick.anyImg);
     await C.sleep(1200);
@@ -110,13 +118,92 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       w.click(); await new Promise(r => setTimeout(r, 500));
       return { on: document.getElementById('lb').classList.contains('on'), src: document.getElementById('lb-img').src, info: document.getElementById('lb-info').textContent };
     });
-    chk('点图打开大图灯箱', !lb.none && lb.on && /^https?:/.test(lb.src || ''), lb.none ? '没有图片' : (lb.info || '').slice(0, 50));
-    await C.sleep(1500);
+    chk('点图打开大图灯箱', !lb.none && lb.on && /^(https?:|data:image\/)/.test(lb.src || ''), lb.none ? '没有图片' : (lb.info || '').slice(0, 50));
+
+    const s1 = await lbState();
+    chk('灯箱提供上一张/下一张按钮与「第 n / 共 m」计数',
+      s1.total > 1 && /^\d+ \/ \d+$/.test(s1.pos.trim()) && !s1.prevOff && !s1.nextOff,
+      JSON.stringify({ 计数: s1.pos, 共几张: s1.total }));
+
+    await page.evaluate(() => document.getElementById('lb-next').click());
+    await C.sleep(450);
+    const s2 = await lbState();
+    chk('点「下一张」按钮切到另一张图', s2.src !== s1.src && s2.pos !== s1.pos, s1.pos.trim() + ' → ' + s2.pos.trim());
+
+    await page.evaluate(() => document.getElementById('lb-prev').click());
+    await C.sleep(450);
+    const s2b = await lbState();
+    chk('点「上一张」按钮切回去', s2b.src === s1.src, s2b.pos.trim());
+
+    await page.keyboard.press('ArrowRight');
+    await C.sleep(450);
+    const s3 = await lbState();
+    chk('方向键 → 切到下一张', s3.src === s2.src, s2.pos.trim() + ' → ' + s3.pos.trim());
+
+    await page.keyboard.press('ArrowLeft');
+    await C.sleep(450);
+    const s4 = await lbState();
+    chk('方向键 ← 切回上一张', s4.src === s1.src, s4.pos.trim());
+
+    // 再按一次确认能继续往前（只按一次，张数少时才不会正好绕回原处）
+    await page.keyboard.press('ArrowRight');
+    await C.sleep(200);
+    const s5 = await lbState();
+    chk('继续按 → 能一路往前切', s5.pos !== s4.pos, s4.pos.trim() + ' → ' + s5.pos.trim());
+    // 首尾循环：张数多时直接用同一个函数跑完整一圈，避免按几百次键盘
+    const loop = await page.evaluate(() => {
+      const n = window.__viewer.sessionImages().length;
+      const start = document.getElementById('lb-pos').textContent;
+      for (let k = 0; k < n; k++) window.__viewer.lbStep(1);
+      return { n, start, end: document.getElementById('lb-pos').textContent };
+    });
+    chk('连按一圈首尾循环回原处', loop.start === loop.end && loop.end !== '',
+      loop.start.trim() + ' 绕 ' + loop.n + ' 张 → ' + loop.end.trim());
+
+    await C.sleep(400);
     await page.screenshot({ path: C.path.join(C.OUT, 'ui_lightbox.png') });
     await page.keyboard.press('Escape');
-    await C.sleep(250);
+    await C.sleep(300);
     chk('Esc 关闭灯箱', !(await page.evaluate(() => document.getElementById('lb').classList.contains('on'))));
+
+    // 重开后再切会话 —— 灯箱应自动关闭（否则会留着上一个会话的图片列表）
+    await page.evaluate(() => { const im = document.querySelector('#msgs .imgwrap'); if (im) im.click(); });
+    await C.sleep(500);
+    const reopened = await lbState();
+    await page.evaluate(id => window.__viewer.openSession(id), pick.biggest);
+    await C.sleep(700);
+    chk('切换会话时灯箱自动关闭', reopened.on && !(await lbState()).on, '重开=' + reopened.on);
   }
+
+  // ---------- 4b. 我方图片不该被套气泡底色（回归：曾被套上绿色气泡）----------
+  const meImgPick = await page.evaluate(() => {
+    const S = window.__viewer.S;
+    const best = S.sessions.map(s => {
+      const idxs = s.msgs.map((m, i) => (m.url && String(m.fromId) === String(S.meId)) ? i : -1).filter(i => i >= 0);
+      const last = idxs.length ? idxs[idxs.length - 1] : -1;
+      return { id: s.id, name: s.name, last, inWin: last >= Math.max(0, s.n - 250), count: idxs.length };
+    }).filter(x => x.last >= 0).sort((a, b) => (b.inWin - a.inWin) || (b.count - a.count))[0];
+    return best || null;
+  });
+  if (meImgPick) {
+    await page.evaluate(id => window.__viewer.openSession(id), meImgPick.id);
+    await C.sleep(1000);
+    const imgBub = await page.evaluate(() => {
+      const pick = sel => {
+        const el = document.querySelector(sel); if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { 底色: cs.backgroundColor, 阴影: cs.boxShadow, 内边距: cs.padding };
+      };
+      return { 我方: pick('#msgs .m.me .bub.imgp'), 对方: pick('#msgs .m:not(.me) .bub.imgp'), 我方图片数: document.querySelectorAll('#msgs .m.me .imgwrap').length };
+    });
+    if (imgBub.我方) {
+      chk('我方图片不套绿色气泡（底色透明、无投影）',
+        imgBub.我方.底色 === 'rgba(0, 0, 0, 0)' && imgBub.我方.阴影 === 'none',
+        JSON.stringify(imgBub.我方));
+    } else console.log('（该会话渲染窗口里没有我方图片，跳过绿色气泡检查）');
+    chk('对方图片也不带白色气泡底', !imgBub.对方 || imgBub.对方.底色 === 'rgba(0, 0, 0, 0)',
+      imgBub.对方 ? JSON.stringify(imgBub.对方) : '（无对方图片）');
+  } else console.log('（数据里没有我方发送的图片，跳过图片气泡底色检查）');
 
   // ---------- 5. 全文搜索 → 跳转 → 高亮 ----------
   const hits = await page.evaluate(() => { window.__viewer.doSearch('我'); return document.querySelectorAll('#hits .hit').length; });
