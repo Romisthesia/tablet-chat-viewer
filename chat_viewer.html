@@ -515,19 +515,20 @@ function recentSenders(s, n) {
   }
   return out;
 }
-/* 群聊标题头像：4 人 2x2；3 人上二下一（整宽）；2 人左右各半；1 人整块 */
+/* 群聊标题头像：一律等分网格 —— 1 人整块，2~4 人都是 2x2 网格，
+   因为格子由「等分的正方形外框」决定，所以每块头像天然是正方形（不足的格子留空）。
+   曾经对 2 人做「左右各半」、3 人做「下排整宽」，那两种格子会被拉成竖条/横条。 */
 function groupTile(names, size) {
   const sz = size || 38, n = Math.min(names.length, 4);
   if (!n) return avatar('群', sz);
-  if (n === 1) {
-    return '<div class="av gr" data-name="' + esc(names[0]) + '" title="' + esc(names[0]) + '" style="width:' + sz + 'px;height:' + sz + 'px;border-radius:5px;overflow:hidden;display:grid;grid-template-columns:1fr;grid-template-rows:1fr;background:var(--img-ph)">' +
-      '<div style="overflow:hidden;display:flex">' + avatarFill(names[0]) + '</div></div>';
-  }
-  const cells = names.slice(0, 4).map((nm, i) => {
-    const span = (n === 3 && i === 2) ? 'grid-column:span 2' : '';
-    return '<div style="' + span + ';overflow:hidden;display:flex">' + avatarFill(nm) + '</div>';
-  }).join('');
-  return '<div class="av gr" data-name="' + esc(names.slice(0, 4).join('、')) + '" title="' + esc(names.slice(0, 4).join('、')) + '" style="width:' + sz + 'px;height:' + sz + 'px;border-radius:5px;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:' + (n === 2 ? '1fr' : '1fr 1fr') + ';gap:1px;background:var(--img-ph)">' + cells + '</div>';
+  const solo = n === 1;
+  // 注意：不要在外面再包一层无尺寸的 wrapper —— 那样内部的 height:100% 会对着「自动高度」失效，
+  // 每块会缩成一行文字的高度（实测 18.5x11 的横条）。直接让填充块当网格项，网格区域高度是确定的。
+  const tiles = names.slice(0, 4).map(nm => avatarFill(nm)).join('');
+  return '<div class="av gr" data-name="' + esc(names.slice(0, 4).join('、')) + '" title="' + esc(names.slice(0, 4).join('、')) + '" ' +
+    'style="width:' + sz + 'px;height:' + sz + 'px;border-radius:5px;overflow:hidden;display:grid;' +
+    'grid-template-columns:' + (solo ? '1fr' : '1fr 1fr') + ';grid-template-rows:' + (solo ? '1fr' : '1fr 1fr') + ';' +
+    'gap:' + (solo ? 0 : 1) + 'px;background:var(--img-ph)">' + tiles + '</div>';
 }
 function avatar(name, size) {
   const sz = size || 34, rad = sz > 36 ? 5 : 4, nm = name || '';

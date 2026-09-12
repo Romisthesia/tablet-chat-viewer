@@ -587,8 +587,10 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       const exp = expect(s).slice(0, 4);
       const r0 = av.getBoundingClientRect();
       const inner = [...av.children].every(c => { const r = c.getBoundingClientRect(); return r.left >= r0.left - 1 && r.right <= r0.right + 1 && r.bottom <= r0.bottom + 1; });
+      const 块尺寸 = [...av.querySelectorAll('[title]')].map(x => { const r = x.getBoundingClientRect(); return { w: +r.width.toFixed(1), h: +r.height.toFixed(1) }; });
       if (tiles.length) out.拼图行++;
-      out.明细.push({ 会话: s.name, 期望: exp, 实际: tiles, 尺寸对: Math.round(r0.width) === 38 && Math.round(r0.height) === 38, 未溢出: inner });
+      out.明细.push({ 会话: s.name, 期望: exp, 实际: tiles, 尺寸对: Math.round(r0.width) === 38 && Math.round(r0.height) === 38, 未溢出: inner,
+                      块尺寸, 全正方形: 块尺寸.every(b => Math.abs(b.w - b.h) <= 1 && b.w > 8) });
     }
     const av0 = document.querySelector('#list .row .av'), cs = av0 ? getComputedStyle(av0) : null;
     const row0 = document.querySelector('#list .row'), rs = row0 ? getComputedStyle(row0) : null;
@@ -601,6 +603,8 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     '群 ' + sideInfo.群数 + ' 个 / 拼图 ' + sideInfo.拼图行 + ' 个' + (拼图错.length ? ' 异常：' + JSON.stringify(拼图错) : ' 全部人数与次序一致'));
   if (sideInfo.自定义优先) console.log('  （有 ' + sideInfo.自定义优先 + ' 个群绑定了自定义群头像，按设计优先显示自定义图）');
   chk('群聊拼图头像尺寸 38x38 且子块不溢出', sideInfo.明细.every(d => d.尺寸对 && d.未溢出), JSON.stringify(sideInfo.明细.slice(0, 2)));
+  chk('拼图里每一块头像都是正方形（不被拉长）', sideInfo.明细.length > 0 && sideInfo.明细.every(d => d.全正方形),
+    JSON.stringify(sideInfo.明细.map(d => d.会话 + ':' + d.块尺寸.map(b => b.w + 'x' + b.h).join(',')).slice(0, 6)));
   chk('头像与侧栏行不可选中、光标颜色透明（防文字光标乱入）',
     sideInfo.光标 && sideInfo.光标.头像caret === 'rgba(0, 0, 0, 0)' && sideInfo.光标.头像可选 === 'none'
     && sideInfo.光标.行caret === 'rgba(0, 0, 0, 0)' && sideInfo.光标.行可选 === 'none', JSON.stringify(sideInfo.光标));
