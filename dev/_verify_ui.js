@@ -1105,10 +1105,12 @@ async function inkOffset(page, sel) {
   chk('头像里的字真的在正中央（像素级：墨迹中心与几何中心偏差 ≤1px）',
     [ink.聊天, ink.侧栏私聊, ink.拼图格内].every(x => x && Math.abs(x.垂直偏移) <= 1 && Math.abs(x.水平偏移) <= 0.5),
     JSON.stringify(ink));
-  chk('头像文字字号相对头像更小（个人头 ≤0.35 倍、拼图格 ≤0.48 倍）',
-    [ink.聊天, ink.侧栏私聊].every(x => x && x.占边长 !== null && x.占边长 <= 0.35)
-    && ink.拼图格内 && ink.拼图格内.占边长 !== null && ink.拼图格内.占边长 <= 0.48,
-    JSON.stringify({ 聊天: ink.聊天 && ink.聊天.占边长, 侧栏私聊: ink.侧栏私聊 && ink.侧栏私聊.占边长, 拼图格内: ink.拼图格内 && ink.拼图格内.占边长 }));
+  const ratios = [ink.聊天 && ink.聊天.占边长, ink.侧栏私聊 && ink.侧栏私聊.占边长, ink.拼图格内 && ink.拼图格内.占边长];
+  chk('头像文字与头像的比例：两处环境尽量一致（都在 0.30~0.40，彼此差 ≤0.06）',
+    ratios.every(r => r !== null) && ratios.every(r => r >= 0.30 && r <= 0.40)
+    && Math.max(...ratios) - Math.min(...ratios) <= 0.06,
+    JSON.stringify({ 聊天: ratios[0], 侧栏私聊: ratios[1], 拼图格内: ratios[2], 极差: +(Math.max(...ratios) - Math.min(...ratios)).toFixed(3) })
+    + ' 字号：' + JSON.stringify([ink.聊天 && ink.聊天.字号, ink.侧栏私聊 && ink.侧栏私聊.字号, ink.拼图格内 && ink.拼图格内.字号]));
   chk('侧栏行头像放大到 47px（拼图小格随之为整数 23px，格内文字更清楚）',
     ink.侧栏行头像边长 === 47, ink.侧栏行头像边长);
 

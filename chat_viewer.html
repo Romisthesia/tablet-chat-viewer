@@ -563,7 +563,7 @@ function avatarFill(name, cell) {
   const img = S.avatars && nm && S.avatars[nm];
   const body = img
     ? '<img src="' + esc(img) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">'
-    : avatarText(nm, sz, true);
+    : avatarText(nm, sz - 3);                 // 参照物是格内那个圆（格 - 3px 边距），不是方格
   // 外面的小格保持圆角正方形（由 groupTile 决定），格内这个头像做成圆形：
   // 留 3px 边距，圆才看得出来（否则方块底色和圆同色，等于没变）。
   return '<div title="' + esc(nm) + '" style="width:100%;height:100%;background:transparent' +
@@ -581,11 +581,12 @@ function avatarFill(name, cell) {
    ② 用真布局量基线 + canvas 量墨迹 —— 实测最大偏 7.5px。
    固定 -0.03em 在 10 个字形 × 两种尺寸（34/20px）上实测平均偏移 0.28px、最大 1px，最好。 */
 const AV_NUDGE = -0.03;                     // em，负值向上
-function avatarText(name, sz, tight) {
+/* sz = 头像直径（拼图里传「格内那个圆的直径」，这样两处参照物一致）。
+   两处的比例统一：1 字 0.38、2 字 0.34 —— 原来个人头 0.34/0.30、拼图格按方格算 0.46/0.38，两处差太多。 */
+function avatarText(name, sz) {
   const txt = initialOf(name);
-  const k1 = tight ? 0.46 : 0.34;           // 一个字
-  const k2 = tight ? 0.38 : 0.30;           // 两个字（缩小到装得下）
-  const fs = Math.round(Math.max(7, Math.min(sz * (txt.length > 1 ? k2 : k1), 22)));   // 取整，字体栅格化更稳
+  const k1 = 0.38, k2 = 0.34;
+  const fs = Math.round(Math.max(7, Math.min(sz * (txt.length > 1 ? k2 : k1), 24)));   // 取整，字体栅格化更稳
   return '<span style="display:block;color:#fff;font-size:' + fs + 'px;line-height:1;font-weight:500;white-space:nowrap;transform:translateY(' + AV_NUDGE + 'em)">' + esc(txt) + '</span>';
 }
 /* 群聊里"最晚发过消息"的 n 个人（按时间从新到旧，按昵称去重） */
