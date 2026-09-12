@@ -8,6 +8,52 @@ const C = require('./_config.js');
 const fails = [];
 const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== undefined ? '  → ' + d : '')); if (!c) fails.push(n); };
 
+/* 像素级测「头像里的字是否居中」：截头像那一小块 → 把 PNG 丢回页面用 canvas 解码 →
+   只统计圆内、且「离白色比离底色更近」的像素（文字是白的、底色是彩色），算墨迹包围盒中心与几何中心的偏差。
+   这是唯一能真的看出「字偏上/偏下」的办法（getComputedStyle 看不出字形墨迹的位置）。 */
+async function inkOffset(page, sel) {
+  // 只在「当前视口内」挑一个（不要 scrollIntoView：聊天区滚到顶部会触发「载入更早」把 DOM 重建，
+  // 量到的元素就失效了）。挑不到再小幅滚动重试一次。
+  const pickOne = () => page.evaluate(s => {
+    const vis = [...document.querySelectorAll(s)].filter(el => {
+      const r = el.getBoundingClientRect();
+      return r.width >= 10 && r.top >= 2 && r.bottom <= innerHeight - 2 && r.left >= -1 && r.right <= innerWidth + 1;
+    });
+    const el = vis.find(e => e.querySelector('span')) || vis[0];   // 优先带文字的
+    if (!el) return null;
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el), sp = el.querySelector('span');
+    return { x: r.x, y: r.y, w: r.width, h: r.height, bg: cs.backgroundColor,
+             fs: sp ? parseFloat(getComputedStyle(sp).fontSize) : null, txt: (sp || el).textContent.trim() };
+  }, sel);
+  let info = await pickOne();
+  if (!info) {
+    await page.evaluate(() => { const sc = document.getElementById('scroll'); if (sc && sc.scrollTop > 400) sc.scrollTop -= 400; });
+    await new Promise(r => setTimeout(r, 400));
+    info = await pickOne();
+  }
+  if (!info) return null;
+  const buf = await page.screenshot({ clip: { x: Math.round(info.x), y: Math.round(info.y), width: Math.round(info.w), height: Math.round(info.h) } });
+  const an = await page.evaluate(async ({ b64, bg }) => {
+    const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+    const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(bg); const B = [+m[1], +m[2], +m[3]];
+    const cx = (cv.width - 1) / 2, cy = (cv.height - 1) / 2, rad = Math.min(cv.width, cv.height) / 2 - 2;
+    let minY = 1e9, maxY = -1, minX = 1e9, maxX = -1, n = 0;
+    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+      const dx = x - cx, dy = y - cy;
+      if (dx * dx + dy * dy > rad * rad) continue;                 // 圆外是页面背景，会污染包围盒
+      const i = (y * cv.width + x) * 4;
+      const dW = Math.abs(d[i] - 255) + Math.abs(d[i+1] - 255) + Math.abs(d[i+2] - 255);
+      const dB = Math.abs(d[i] - B[0]) + Math.abs(d[i+1] - B[1]) + Math.abs(d[i+2] - B[2]);
+      if (dW < dB - 40) { n++; if (y < minY) minY = y; if (y > maxY) maxY = y; if (x < minX) minX = x; if (x > maxX) maxX = x; }
+    }
+    return { dy: +(((minY + maxY) / 2) - cy).toFixed(1), dx: +(((minX + maxX) / 2) - cx).toFixed(1), n };
+  }, { b64: Buffer.from(buf).toString('base64'), bg: info.bg });
+  return { 边长: Math.round(info.w), 字号: info.fs, 占边长: info.fs ? +(info.fs / info.w).toFixed(3) : null, 文本: info.txt, 垂直偏移: an.dy, 水平偏移: an.dx };
+}
+
 (async () => {
   C.ensureOut();
   const browser = await puppeteer.launch({ executablePath: C.chromePath(), headless: 'new', args: ['--no-sandbox', '--allow-file-access-from-files'] });
@@ -72,7 +118,7 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       };
     });
     console.log('几何：' + JSON.stringify(geo));
-    chk('侧栏宽度合理(280~320)', geo.side.w >= 280 && geo.side.w <= 320, geo.side.w);
+    chk('侧栏宽度已放大(320~380)', geo.side.w >= 320 && geo.side.w <= 380, geo.side.w);
     chk('无横向溢出', !geo.overflowX);
     chk('我方气泡整体靠右、对方靠左', geo.meBox && geo.otherBox &&
       (geo.meBox.x + geo.meBox.w) > (geo.otherBox.x + geo.otherBox.w) && geo.meBox.x > geo.otherBox.x,
@@ -603,7 +649,7 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
         return bb.width > a.width + 0.5 || bb.height > a.height + 0.5;
       });
       if (tiles.length) out.拼图行++;
-      out.明细.push({ 会话: s.name, 期望: exp, 实际: tiles, 尺寸对: Math.round(r0.width) === 38 && Math.round(r0.height) === 38, 未溢出: inner,
+      out.明细.push({ 会话: s.name, 期望: exp, 实际: tiles, 尺寸对: Math.round(r0.width) === 47 && Math.round(r0.height) === 47, 未溢出: inner,
                       块尺寸, 文字未溢出: !文字溢出, 全正方形: 块尺寸.every(b => Math.abs(b.w - b.h) <= 1 && b.w > 8) });
     }
     const av0 = document.querySelector('#list .row .av'), cs = av0 ? getComputedStyle(av0) : null;
@@ -616,7 +662,7 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     sideInfo.拼图行 > 0 && 拼图错.length === 0,
     '群 ' + sideInfo.群数 + ' 个 / 拼图 ' + sideInfo.拼图行 + ' 个' + (拼图错.length ? ' 异常：' + JSON.stringify(拼图错) : ' 全部人数与次序一致'));
   if (sideInfo.自定义优先) console.log('  （有 ' + sideInfo.自定义优先 + ' 个群绑定了自定义群头像，按设计优先显示自定义图）');
-  chk('群聊拼图头像尺寸 38x38 且子块不溢出', sideInfo.明细.every(d => d.尺寸对 && d.未溢出), JSON.stringify(sideInfo.明细.slice(0, 2)));
+  chk('群聊拼图头像外框 47x47（侧栏已放大）且子块不溢出', sideInfo.明细.every(d => d.尺寸对 && d.未溢出), JSON.stringify(sideInfo.明细.slice(0, 2)));
   chk('拼图块里的文字不溢出格子', sideInfo.明细.every(d => d.文字未溢出), JSON.stringify(sideInfo.明细.map(d => d.会话 + ':' + d.实际.join('/')).slice(0, 4)));
   chk('拼图里每一块头像都是正方形（不被拉长）', sideInfo.明细.length > 0 && sideInfo.明细.every(d => d.全正方形),
     JSON.stringify(sideInfo.明细.map(d => d.会话 + ':' + d.块尺寸.map(b => b.w + 'x' + b.h).join(',')).slice(0, 6)));
@@ -1047,6 +1093,24 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   chk('改颜色不影响已上传的头像图片（两者能并存）',
     av.图片与颜色并存.头像图片还在 && av.图片与颜色并存.聊天里是图片 && av.图片与颜色并存.颜色也记下了,
     JSON.stringify(av.图片与颜色并存));
+
+  // ---------- 13b. 头像文字：字号相对更小 + 像素级居中 ----------
+  const ink = {
+    聊天: await inkOffset(page, '#msgs .m .av'),
+    侧栏私聊: await inkOffset(page, '#list .row .av:not(.gr)'),
+    拼图格内: await inkOffset(page, '#list .row .av.gr [title] > div'),
+    侧栏行头像边长: await page.evaluate(() => { const av = document.querySelector('#list .row .av:not(.gr)'); return av ? Math.round(av.getBoundingClientRect().width) : null; })
+  };
+  // 容差 1px：小字号（9~14px）下字形墨迹会被量化到整数像素行，±0.5px 是测量极限、个别字形到 1px
+  chk('头像里的字真的在正中央（像素级：墨迹中心与几何中心偏差 ≤1px）',
+    [ink.聊天, ink.侧栏私聊, ink.拼图格内].every(x => x && Math.abs(x.垂直偏移) <= 1 && Math.abs(x.水平偏移) <= 0.5),
+    JSON.stringify(ink));
+  chk('头像文字字号相对头像更小（个人头 ≤0.35 倍、拼图格 ≤0.48 倍）',
+    [ink.聊天, ink.侧栏私聊].every(x => x && x.占边长 !== null && x.占边长 <= 0.35)
+    && ink.拼图格内 && ink.拼图格内.占边长 !== null && ink.拼图格内.占边长 <= 0.48,
+    JSON.stringify({ 聊天: ink.聊天 && ink.聊天.占边长, 侧栏私聊: ink.侧栏私聊 && ink.侧栏私聊.占边长, 拼图格内: ink.拼图格内 && ink.拼图格内.占边长 }));
+  chk('侧栏行头像放大到 47px（拼图小格随之为整数 23px，格内文字更清楚）',
+    ink.侧栏行头像边长 === 47, ink.侧栏行头像边长);
 
   // 收尾：恢复进入本节前的会话与干净状态
   await page.evaluate(async id => {

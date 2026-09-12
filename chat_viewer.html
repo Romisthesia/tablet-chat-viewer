@@ -50,7 +50,7 @@ button:disabled{opacity:.45;cursor:default}
 .dropmask.on{display:flex}
 
 /* ---------- 侧栏 ---------- */
-#side{width:300px;min-width:220px;background:var(--side-bg);border-right:1px solid var(--side-bd);display:flex;flex-direction:column}
+#side{width:344px;min-width:260px;background:var(--side-bg);border-right:1px solid var(--side-bd);display:flex;flex-direction:column}
 #side-top{display:flex;align-items:center;gap:7px;padding:10px}
 #side-top .title{font-weight:600;font-size:14px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .iconbtn{width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;font-size:15px}
@@ -71,7 +71,7 @@ button:disabled{opacity:.45;cursor:default}
 /* 头像/侧栏行不该出现文字光标（浏览器「光标浏览 F7」或第三方脚本把页面设为可编辑时会冒出来），
    这里做防护：不可选中 + 光标颜色透明，光标即使在也不可见 */
 .av{user-select:none;caret-color:transparent}
-.row .av{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500;overflow:hidden;padding:0}
+.row .av{width:47px;height:47px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500;overflow:hidden;padding:0}
 .row .av.gr{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1px;background:var(--img-ph)}
 .row .mid{flex:1;min-width:0}
 .row .n1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
@@ -383,6 +383,8 @@ const S = {
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DAY = 864e5;
+const SIDE_AV = 47;                   // 侧栏行内头像边长：放大以便群聊拼图小块里的字看清；
+                                      // 取 47 是为了让拼图小格变成整数 (47-1)/2 = 23px，字体栅格化更准
 
 /* ==================== 1. 解析导出文件 ==================== */
 /* 定位 `var array = [ ... ]` 的真正结尾：字符串/转义/括号感知，避免正文里的 "];" 造成截断 */
@@ -559,18 +561,32 @@ function avatarFill(name, cell) {
   const nm = name || '';
   const sz = cell || 38;
   const img = S.avatars && nm && S.avatars[nm];
-  const txt = initialOf(nm);
-  // 一个字可以大些，两个字要缩到格子能容下（18.5px 的格里放两个 15px 的字会溢出）
-  const fs = Math.max(8, Math.min(sz * (txt.length > 1 ? 0.40 : 0.58), 15));
   const body = img
     ? '<img src="' + esc(img) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">'
-    : '<span style="color:#fff;font-size:' + fs.toFixed(1) + 'px;line-height:1;font-weight:500;white-space:nowrap">' + esc(txt) + '</span>';
+    : avatarText(nm, sz, true);
   // 外面的小格保持圆角正方形（由 groupTile 决定），格内这个头像做成圆形：
   // 留 3px 边距，圆才看得出来（否则方块底色和圆同色，等于没变）。
   return '<div title="' + esc(nm) + '" style="width:100%;height:100%;background:transparent' +
     ';display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;caret-color:transparent">' +
     '<div style="width:calc(100% - 3px);height:calc(100% - 3px);border-radius:50%;overflow:hidden;flex:none;' +
     'background:' + (img ? 'transparent' : colorOf(nm)) + ';display:flex;align-items:center;justify-content:center">' + body + '</div></div>';
+}
+/* 头像里的文字：字号相对头像自适应（字数多就更小），并做垂直居中修正。
+   line-height:normal 用的是字体 ascent/descent 的不对称度量，中文字形墨迹会偏低
+   （实测 34px 头像偏低 1.0px、38px 偏低 1.5px）。这里 line-height:1 + 一点 em 级上移，
+   让墨迹正好落在几何中心（em 单位跟着字号缩放，所有尺寸都适用）。 */
+/* 垂直修正量：line-height:1 + 上移 0.03em。
+   试过两种「更聪明」的做法，都被实测否掉了：
+   ① 按字体度量（fontBoundingBoxAscent/Descent）推算 —— 小字号下失准，格内反而偏高 1.5px；
+   ② 用真布局量基线 + canvas 量墨迹 —— 实测最大偏 7.5px。
+   固定 -0.03em 在 10 个字形 × 两种尺寸（34/20px）上实测平均偏移 0.28px、最大 1px，最好。 */
+const AV_NUDGE = -0.03;                     // em，负值向上
+function avatarText(name, sz, tight) {
+  const txt = initialOf(name);
+  const k1 = tight ? 0.46 : 0.34;           // 一个字
+  const k2 = tight ? 0.38 : 0.30;           // 两个字（缩小到装得下）
+  const fs = Math.round(Math.max(7, Math.min(sz * (txt.length > 1 ? k2 : k1), 22)));   // 取整，字体栅格化更稳
+  return '<span style="display:block;color:#fff;font-size:' + fs + 'px;line-height:1;font-weight:500;white-space:nowrap;transform:translateY(' + AV_NUDGE + 'em)">' + esc(txt) + '</span>';
 }
 /* 群聊里"最晚发过消息"的 n 个人（按时间从新到旧，按昵称去重） */
 function recentSenders(s, n) {
@@ -607,7 +623,8 @@ function avatar(name, size) {
       '<img src="' + esc(img) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">' +
       '</div>';
   }
-  return '<div class="av" data-name="' + esc(nm) + '" style="background:' + colorOf(nm) + ';' + base + ';font-size:' + Math.round(sz * .42) + 'px">' + esc(initialOf(nm)) + '</div>';
+  return '<div class="av" data-name="' + esc(nm) + '" style="background:' + colorOf(nm) + ';' + base +
+    ';display:flex;align-items:center;justify-content:center;overflow:hidden">' + avatarText(nm, sz) + '</div>';
 }
 function hl(text, q) {
   let h = esc(text);
@@ -649,8 +666,8 @@ function renderSidebar() {
     for (const s of list) {
       html += '<div class="row' + (S.cur && S.cur.id === s.id ? ' on' : '') + '" data-id="' + esc(s.id) + '">' +
         (s.kind === 'GROUP'
-          ? ((S.avatars && S.avatars[s.name]) ? avatar(s.name, 38) : groupTile(recentSenders(s, 4), 38))
-          : avatar(s.name, 38)) +
+          ? ((S.avatars && S.avatars[s.name]) ? avatar(s.name, SIDE_AV) : groupTile(recentSenders(s, 4), SIDE_AV))
+          : avatar(s.name, SIDE_AV)) +
         '<div class="mid"><div class="n1"><div class="nm">' + esc(s.name) + '</div><div class="tm">' + fmtListTime(s.last) + '</div></div>' +
         '<div class="n2">' + (s.kind === 'GROUP' ? '<span class="tag">群</span>' : '<span class="tag">私</span>') +
         esc(preview(s)).slice(0, 90) + ' · ' + s.n + '条</div></div></div>';
@@ -1607,7 +1624,7 @@ async function boot() {
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
   openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf,
-  colorOf, currentAvatarName, syncAvatarColor, refreshAvatars, doSearch, findHits, searchIndex, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
+  colorOf, currentAvatarName, avatar, avatarText, syncAvatarColor, refreshAvatars, doSearch, findHits, searchIndex, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
 boot();
 </script>
 </body>
