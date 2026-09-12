@@ -177,7 +177,8 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #gal .gal-top .sp{flex:1}
 /* 用固定尺寸正方形格子 + flex 换行：之前用 grid + aspect-ratio 时，懒加载图片的行高算不对，
    同一列上下两格会压在一起（实测 t=55 与 t=93、高 128 的重叠）。flex 换行不可能重叠。 */
-#gal .gal-grid{flex:1;overflow-y:auto;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;padding-bottom:8px}
+#gal .gal-grid{flex:1;overflow-y:auto;padding-bottom:8px}
+#gal .gal-body{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start}
 #gal .gal-cell{width:126px;height:126px;flex:0 0 auto;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;cursor:zoom-in}
 #gal .gal-cell img{width:100%;height:100%;object-fit:cover;display:block}
 #gal .gal-cell.bad::after{content:'加载失败';color:#bbb;font-size:11px;display:flex;align-items:center;justify-content:center;height:100%}
@@ -1150,12 +1151,12 @@ function closeLB() { $('lb').classList.remove('on'); }
 
 /* 会话内图片画廊：缩略图懒加载 + 分批渲染（某个会话有 3150 张，一次全塞进 DOM 会卡）。
    点缩略图 → 关画廊、开灯箱，左右翻的就是当前这批图（受「只看某人」筛选影响）。 */
-let galList = [], galShown = 0, galBusy = false;
+let galList = [], galFrom = 0, galBusy = false;
 const GAL_STEP = 120;          // 每批张数
 function openGallery() {
   if (!S.cur) return;
   const pp = $('ppl'); if (pp) pp.remove();
-  galList = sessionImages(); galShown = 0; galBusy = false;
+  galList = sessionImages(); galFrom = 0; galBusy = false;
   let g = $('gal');
   if (!g) {
     g = document.createElement('div'); g.id = 'gal'; document.body.appendChild(g);
@@ -1168,34 +1169,52 @@ function openGallery() {
   g.innerHTML = '<div class="gal-top"><b>本会话图片</b>' +
     '<span id="gal-n">共 ' + galList.length.toLocaleString() + ' 张' + (S.filterName ? '（只看「' + esc(S.filterName) + '」）' : '') + '</span>' +
     '<span class="sp"></span><button class="ghost" id="gal-close">关闭 (Esc)</button></div>' +
-    '<div class="gal-grid" id="gal-grid"></div><div id="gal-more"></div>';
+    '<div class="gal-grid" id="gal-grid"><div id="gal-head" class="gal-end"></div>' +
+    '<div class="gal-body" id="gal-body"></div><div id="gal-foot" class="gal-end"></div></div>';
   g.classList.add('on');
   $('gal-close').onclick = () => g.classList.remove('on');
-  if (!galList.length) { $('gal-grid').innerHTML = '<div class="gal-empty">本会话没有图片</div>'; return; }
-  // 和聊天记录一样：往下滚到底就自动续载（不用手动点按钮）
+  if (!galList.length) { $('gal-body').innerHTML = '<div class="gal-empty">本会话没有图片</div>'; $('gal-head').innerHTML = ''; return; }
+  // 和聊天记录一个逻辑：顺序是「上旧下新」，一打开就停在最底部（最新那批），
+  // 往上滑到顶才继续加载更早的，并且加完保持画面不动。
   const grid = $('gal-grid');
-  grid.onscroll = () => { if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 320) galMore(); };
-  galMore();
+  grid.onscroll = () => { if (grid.scrollTop < 360) galOlder(); };
+  galFrom = Math.max(0, galList.length - GAL_STEP);
+  renderGal();
+  grid.scrollTop = grid.scrollHeight;
+  if (grid.scrollHeight <= grid.clientHeight + 8) galOlder();   // 一屏就装下了，继续补
 }
-function galMore() {
-  const grid = $('gal-grid'); if (!grid || galBusy) return;
-  if (galShown >= galList.length) return;
+function galCell(k) {
+  const it = galList[k];
+  return '<div class="gal-cell" data-at="' + k + '" title="' + fmtTime(it.ts) + (it.from ? ' · ' + esc(it.from) : '') + '">' +
+    '<img loading="lazy" decoding="async" src="' + esc(it.url) + '" alt="" onerror="this.parentNode.classList.add(\'bad\')"></div>';
+}
+function galHeadTxt() {
+  $('gal-head').innerHTML = galFrom > 0
+    ? '<div class="gal-end">↑ 前面还有 ' + galFrom.toLocaleString() + ' 张 · 继续上滑自动加载</div>'
+    : '<div class="gal-end">— 已经是全部图片 —</div>';
+  $('gal-foot').innerHTML = '<div class="gal-end">共 ' + galList.length.toLocaleString() + ' 张</div>';
+}
+function renderGal() {                       // 渲染 [galFrom, 末尾)，即「更早的一段 + 当前这段」
+  const body = $('gal-body'); if (!body) return;
+  const html = [];
+  for (let k = galFrom; k < galList.length; k++) html.push(galCell(k));
+  body.innerHTML = html.join('');
+  galHeadTxt();
+}
+function galOlder() {                        // 向上补更早的，加完保持画面位置不动
+  const grid = $('gal-grid'), body = $('gal-body'); if (!grid || !body || galBusy) return;
+  if (galFrom <= 0) return;
   galBusy = true;
-  const end = Math.min(galList.length, galShown + GAL_STEP), html = [];
-  for (let k = galShown; k < end; k++) {
-    const it = galList[k];
-    html.push('<div class="gal-cell" data-at="' + k + '" title="' + fmtTime(it.ts) + (it.from ? ' · ' + esc(it.from) : '') + '">' +
-      '<img loading="lazy" decoding="async" src="' + esc(it.url) + '" alt="" onerror="this.parentNode.classList.add(\'bad\')"></div>');
-  }
-  grid.insertAdjacentHTML('beforeend', html.join(''));
-  galShown = end;
-  $('gal-more').innerHTML = galShown < galList.length
-    ? '<div class="gal-end">已显示 ' + galShown.toLocaleString() + ' / ' + galList.length.toLocaleString() + ' 张 · 继续下滑自动加载</div>'
-    : '<div class="gal-end">— 共 ' + galList.length.toLocaleString() + ' 张 —</div>';
+  const prevH = grid.scrollHeight, prevTop = grid.scrollTop;
+  const nf = Math.max(0, galFrom - GAL_STEP), html = [];
+  for (let k = nf; k < galFrom; k++) html.push(galCell(k));
+  body.insertAdjacentHTML('afterbegin', html.join(''));
+  galFrom = nf;
+  galHeadTxt();
+  grid.scrollTop = prevTop + (grid.scrollHeight - prevH);     // 关键：内容变高多少，就往下推多少
   setTimeout(() => {
     galBusy = false;
-    // 窗口特别高、首批没铺满时补一批（没得滚也就不会触发滚动加载）
-    if (galShown < galList.length && grid.scrollHeight <= grid.clientHeight + 8) galMore();
+    if (galFrom > 0 && grid.scrollHeight <= grid.clientHeight + 8) galOlder();
   }, 120);
 }
 function closeGallery() { const g = $('gal'); if (g) g.classList.remove('on'); }

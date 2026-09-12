@@ -810,11 +810,24 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     const s = V.sortedSessions().slice().sort((a, b) => imgN(b) - imgN(a))[0];   // 取图片最多的会话
     V.openSession(s.id);
     await sleep(600);
+    // 样例数据图片太少，验证不了「分批 + 上滑续载」；临时克隆图片消息凑够 300 张，测完还原
+    let injected = 0;
+    if (V.sessionImages().length < 121 && V.sessionImages().length > 0) {
+      const proto = s.msgs.find(x => x.url), base = V.sessionImages()[0].ts;
+      const before = s.msgs.length;
+      for (let k = 0; k < 300; k++) { const m = Object.assign({}, proto); m.ts = base + k * 1000; s.msgs.push(m); }
+      s.n = s.msgs.length;
+      injected = s.msgs.length - before;
+      V.openSession(s.id);
+      await sleep(600);
+    }
     const total = V.sessionImages().length;
     V.openGallery();
-    await sleep(800);
-    const g = document.getElementById('gal'), grid = document.getElementById('gal-grid');
-    const rectsOf = () => [...grid.querySelectorAll('.gal-cell')].map(c => c.getBoundingClientRect());
+    await sleep(900);
+    const g = $('gal'), grid = $('gal-grid'), body = $('gal-body');
+    const cells = () => [...body.querySelectorAll('.gal-cell')];
+    const at = c => +c.dataset.at;
+    const rectsOf = () => cells().map(c => c.getBoundingClientRect());
     const 重叠对 = rs => {           // 两两求交：任何两格相交都算重叠
       let n = 0;
       for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
@@ -823,20 +836,29 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       }
       return n;
     };
-    const r0 = rectsOf();
-    const out = { 会话: s.name, 本会话图数: total, 首批格子: r0.length, 期望首批: Math.min(120, total), 画廊打开: g.classList.contains('on'),
-                  标题: (document.getElementById('gal-n') || {}).textContent,
+    const c0 = cells(), r0 = rectsOf();
+    const out = { 会话: s.name, 本会话图数: total, 首批格子: c0.length, 期望首批: Math.min(120, total),
+                  最旧下标: c0.length ? at(c0[0]) : null, 最新下标: c0.length ? at(c0[c0.length - 1]) : null,
+                  期望最旧下标: Math.max(0, total - 120),
+                  初始停在底部: grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 4,
                   重叠对: 重叠对(r0), 全正方形: r0.every(r => Math.abs(r.width - r.height) <= 1 && r.width > 40),
                   底色: getComputedStyle(g).backgroundColor,
-                  底部提示: document.getElementById('gal-more').textContent.trim(), 还有更多: total > r0.length };
-    if (out.还有更多) {           // 下滑到底 → 自动续载（不点按钮）
-      grid.scrollTop = grid.scrollHeight;
+                  顶部提示: $('gal-head').textContent.trim(), 还有更早: total > c0.length };
+    if (out.还有更早) {            // 往上滑 → 自动加载更早的，且画面不能跳
+      const h0 = grid.scrollHeight;
+      grid.scrollTop = 100;        // 进入顶部阈值 → 触发加载
       await sleep(900);
-      out.滑到底后格子 = grid.querySelectorAll('.gal-cell').length;
-      out.滑到底后重叠对 = 重叠对(rectsOf());
-      out.滑到底后提示 = document.getElementById('gal-more').textContent.trim();
+      const c1 = cells(), h1 = grid.scrollHeight;
+      out.上滑后格子 = c1.length;
+      out.上滑后最旧下标 = at(c1[0]);
+      out.上滑后重叠对 = 重叠对(rectsOf());
+      out.上滑后顶部提示 = $('gal-head').textContent.trim();
+      out.顺序上旧下新 = c1.every((c, k) => at(c) === at(c1[0]) + k);
+      out.画面没跳 = { 期望scrollTop: 100 + (h1 - h0), 实际: +grid.scrollTop.toFixed(1), 差: +(grid.scrollTop - (100 + (h1 - h0))).toFixed(1) };
     }
-    grid.querySelectorAll('.gal-cell')[0].click();
+    const last = cells()[cells().length - 1];       // 点最新那张（在最下面）
+    out.点的是最新 = at(last) === total - 1;
+    last.click();
     await sleep(700);
     out.点缩略图后 = { 画廊关: !g.classList.contains('on'), 灯箱开: document.getElementById('lb').classList.contains('on'),
                        计数: document.getElementById('lb-pos').textContent };
@@ -844,17 +866,27 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await sleep(200);
     out.Esc后画廊关 = !g.classList.contains('on');
+    if (injected) {                       // 还原临时注入的消息，别影响后面的小节
+      s.msgs.length = s.n - injected; s.n = s.msgs.length;
+      V.openSession(s.id);
+      await sleep(300);
+    }
+    out.注入了临时图片 = injected;
     return out;
   });
-  chk('图片画廊：固定尺寸正方形格子，绝不重叠',
-    gal.首批格子 === gal.期望首批 && gal.首批格子 > 0 && gal.重叠对 === 0 && gal.全正方形 && gal.画廊打开,
-    JSON.stringify({ 会话: gal.会话, 图数: gal.本会话图数, 首批: gal.首批格子, 重叠对: gal.重叠对, 全正方形: gal.全正方形, 标题: gal.标题 }));
+  chk('图片画廊：正方形格子 + 不重叠，一打开停在最底部（最新那批）',
+    gal.首批格子 === gal.期望首批 && gal.首批格子 > 0 && gal.重叠对 === 0 && gal.全正方形 && gal.初始停在底部
+    && gal.最旧下标 === gal.期望最旧下标 && gal.最新下标 === gal.本会话图数 - 1,
+    JSON.stringify({ 会话: gal.会话, 图数: gal.本会话图数, 首批: gal.首批格子, 下标: [gal.最旧下标, gal.最新下标], 重叠对: gal.重叠对, 停在底部: gal.初始停在底部 }));
   chk('画廊底色不透明（不会透出后面的聊天，看着像重叠）',
     /^rgb\(/.test(gal.底色) && !/rgba/.test(gal.底色), gal.底色);
-  chk('画廊和聊天记录一样「下滑自动续载」，点缩略图进灯箱、Esc 关闭',
-    (!gal.还有更多 || (gal.滑到底后格子 > gal.首批格子 && gal.滑到底后重叠对 === 0 && /已显示|共/.test(gal.滑到底后提示)))
-    && gal.点缩略图后.画廊关 && gal.点缩略图后.灯箱开 && /^1 \/ \d+$/.test(gal.点缩略图后.计数) && gal.Esc后画廊关,
-    JSON.stringify({ 还有更多: gal.还有更多, 滑到底后: gal.滑到底后格子, 重叠: gal.滑到底后重叠对, 提示: gal.滑到底后提示, 点后: gal.点缩略图后, Esc: gal.Esc后画廊关 }));
+  chk('往上滑自动加载更早的图片，加载后画面不跳、顺序仍是上旧下新',
+    !gal.还有更早 || (gal.上滑后格子 > gal.首批格子 && gal.上滑后最旧下标 < gal.最旧下标
+                      && gal.上滑后重叠对 === 0 && gal.顺序上旧下新 && Math.abs(gal.画面没跳.差) <= 2),
+    JSON.stringify({ 还有更早: gal.还有更早, 上滑后: gal.上滑后格子, 最旧下标: gal.上滑后最旧下标, 顶部提示: gal.上滑后顶部提示, 顺序: gal.顺序上旧下新, 画面没跳: gal.画面没跳 }));
+  chk('点最新那张缩略图直接进灯箱、Esc 关闭',
+    gal.点的是最新 && gal.点缩略图后.画廊关 && gal.点缩略图后.灯箱开 && /^\d+ \/ \d+$/.test(gal.点缩略图后.计数) && gal.Esc后画廊关,
+    JSON.stringify({ 点的是最新: gal.点的是最新, 点后: gal.点缩略图后, Esc: gal.Esc后画廊关 }));
 
   // 收尾：恢复进入本节前的会话与干净状态
   await page.evaluate(async id => {
