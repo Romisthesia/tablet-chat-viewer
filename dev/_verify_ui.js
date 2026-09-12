@@ -588,9 +588,14 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       const r0 = av.getBoundingClientRect();
       const inner = [...av.children].every(c => { const r = c.getBoundingClientRect(); return r.left >= r0.left - 1 && r.right <= r0.right + 1 && r.bottom <= r0.bottom + 1; });
       const 块尺寸 = [...av.querySelectorAll('[title]')].map(x => { const r = x.getBoundingClientRect(); return { w: +r.width.toFixed(1), h: +r.height.toFixed(1) }; });
+      const 文字溢出 = [...av.querySelectorAll('[title]')].some(x => {
+        const sp = x.querySelector('span'); if (!sp) return false;
+        const a = x.getBoundingClientRect(), bb = sp.getBoundingClientRect();
+        return bb.width > a.width + 0.5 || bb.height > a.height + 0.5;
+      });
       if (tiles.length) out.拼图行++;
       out.明细.push({ 会话: s.name, 期望: exp, 实际: tiles, 尺寸对: Math.round(r0.width) === 38 && Math.round(r0.height) === 38, 未溢出: inner,
-                      块尺寸, 全正方形: 块尺寸.every(b => Math.abs(b.w - b.h) <= 1 && b.w > 8) });
+                      块尺寸, 文字未溢出: !文字溢出, 全正方形: 块尺寸.every(b => Math.abs(b.w - b.h) <= 1 && b.w > 8) });
     }
     const av0 = document.querySelector('#list .row .av'), cs = av0 ? getComputedStyle(av0) : null;
     const row0 = document.querySelector('#list .row'), rs = row0 ? getComputedStyle(row0) : null;
@@ -603,11 +608,22 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     '群 ' + sideInfo.群数 + ' 个 / 拼图 ' + sideInfo.拼图行 + ' 个' + (拼图错.length ? ' 异常：' + JSON.stringify(拼图错) : ' 全部人数与次序一致'));
   if (sideInfo.自定义优先) console.log('  （有 ' + sideInfo.自定义优先 + ' 个群绑定了自定义群头像，按设计优先显示自定义图）');
   chk('群聊拼图头像尺寸 38x38 且子块不溢出', sideInfo.明细.every(d => d.尺寸对 && d.未溢出), JSON.stringify(sideInfo.明细.slice(0, 2)));
+  chk('拼图块里的文字不溢出格子', sideInfo.明细.every(d => d.文字未溢出), JSON.stringify(sideInfo.明细.map(d => d.会话 + ':' + d.实际.join('/')).slice(0, 4)));
   chk('拼图里每一块头像都是正方形（不被拉长）', sideInfo.明细.length > 0 && sideInfo.明细.every(d => d.全正方形),
     JSON.stringify(sideInfo.明细.map(d => d.会话 + ':' + d.块尺寸.map(b => b.w + 'x' + b.h).join(',')).slice(0, 6)));
   chk('头像与侧栏行不可选中、光标颜色透明（防文字光标乱入）',
     sideInfo.光标 && sideInfo.光标.头像caret === 'rgba(0, 0, 0, 0)' && sideInfo.光标.头像可选 === 'none'
     && sideInfo.光标.行caret === 'rgba(0, 0, 0, 0)' && sideInfo.光标.行可选 === 'none', JSON.stringify(sideInfo.光标));
+
+  // ---------- 9b. 头像文字取字规则 ----------
+  const initials = await page.evaluate(() => {
+    const f = window.__viewer.initialOf;
+    const cases = [['唐熠嘉', '熠嘉'], ['林小舟', '小舟'], ['陈屿', '陈屿'], ['周乐', '周乐'], ['欧阳娜娜', '欧阳'], ['机器人社技术组', '机器'], ['A', 'A']];
+    return cases.map(([n, exp]) => ({ 名字: n, 字数: [...n].length, 取到: f(n), 期望: exp, 正确: f(n) === exp }));
+  });
+  const 取字错 = initials.filter(x => !x.正确);
+  chk('头像文字规则：2 字取全名 / 3 字取后 2 字 / 4 字以上取前 2 字',
+    取字错.length === 0, 取字错.length ? JSON.stringify(取字错) : initials.map(x => x.名字 + '→' + x.取到).join('  '));
 
   // ---------- 7. 设置面板 ----------
   await page.evaluate(() => document.getElementById('btn-set').click());

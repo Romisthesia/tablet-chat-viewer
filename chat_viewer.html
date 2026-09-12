@@ -493,15 +493,28 @@ function imgBox(w, h) {
   return { w: Math.max(40, Math.round(w * k)), h: Math.max(30, Math.round(h * k)), known: true };
 }
 function colorOf(name) { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return PAL[h % PAL.length]; }
-function initialOf(name) { const s = String(name || '?').trim(); return s ? s[0] : '?'; }
+/* 头像里的文字规则：3 字取后 2 字、2 字取全名、4 字及以上取前 2 字（1 字就 1 字）。
+   按码点切分，避免 emoji / 生僻字被截断。 */
+function initialOf(name) {
+  const s = String(name == null ? '' : name).trim();
+  if (!s) return '?';
+  const ch = [...s];
+  if (ch.length === 1) return ch[0];
+  if (ch.length <= 3) return ch.slice(-2).join('');
+  return ch.slice(0, 2).join('');
+}
 /* 头像里"填充"用的内容（自定义图片或首字色块），宽高跟着容器走 —— 供群聊拼图使用 */
-function avatarFill(name, tip) {
+function avatarFill(name, cell) {
   const nm = name || '';
+  const sz = cell || 38;
   const img = S.avatars && nm && S.avatars[nm];
+  const txt = initialOf(nm);
+  // 一个字可以大些，两个字要缩到格子能容下（18.5px 的格里放两个 15px 的字会溢出）
+  const fs = Math.max(8, Math.min(sz * (txt.length > 1 ? 0.40 : 0.58), 15));
   const body = img
     ? '<img src="' + esc(img) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">'
-    : '<span style="color:#fff;font-size:11px;line-height:1;font-weight:500">' + esc(initialOf(nm)) + '</span>';
-  return '<div title="' + esc(tip || nm) + '" style="width:100%;height:100%;background:' + (img ? 'transparent' : colorOf(nm)) +
+    : '<span style="color:#fff;font-size:' + fs.toFixed(1) + 'px;line-height:1;font-weight:500;white-space:nowrap">' + esc(txt) + '</span>';
+  return '<div title="' + esc(nm) + '" style="width:100%;height:100%;background:' + (img ? 'transparent' : colorOf(nm)) +
     ';display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;caret-color:transparent">' + body + '</div>';
 }
 /* 群聊里"最晚发过消息"的 n 个人（按时间从新到旧，按昵称去重） */
@@ -521,14 +534,14 @@ function recentSenders(s, n) {
 function groupTile(names, size) {
   const sz = size || 38, n = Math.min(names.length, 4);
   if (!n) return avatar('群', sz);
-  const solo = n === 1;
+  const solo = n === 1, gap = solo ? 0 : 1, cell = solo ? sz : (sz - gap) / 2;
   // 注意：不要在外面再包一层无尺寸的 wrapper —— 那样内部的 height:100% 会对着「自动高度」失效，
   // 每块会缩成一行文字的高度（实测 18.5x11 的横条）。直接让填充块当网格项，网格区域高度是确定的。
-  const tiles = names.slice(0, 4).map(nm => avatarFill(nm)).join('');
+  const tiles = names.slice(0, 4).map(nm => avatarFill(nm, cell)).join('');
   return '<div class="av gr" data-name="' + esc(names.slice(0, 4).join('、')) + '" title="' + esc(names.slice(0, 4).join('、')) + '" ' +
     'style="width:' + sz + 'px;height:' + sz + 'px;border-radius:5px;overflow:hidden;display:grid;' +
     'grid-template-columns:' + (solo ? '1fr' : '1fr 1fr') + ';grid-template-rows:' + (solo ? '1fr' : '1fr 1fr') + ';' +
-    'gap:' + (solo ? 0 : 1) + 'px;background:var(--img-ph)">' + tiles + '</div>';
+    'gap:' + gap + 'px;background:var(--img-ph)">' + tiles + '</div>';
 }
 function avatar(name, size) {
   const sz = size || 34, rad = sz > 36 ? 5 : 4, nm = name || '';
@@ -1321,7 +1334,7 @@ async function boot() {
 /* 暴露内部接口（自动化验证用） */
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
-  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile };
+  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf };
 boot();
 </script>
 </body>
