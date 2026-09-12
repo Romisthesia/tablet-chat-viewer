@@ -52,6 +52,13 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
           for (let i = 0; i < kids.length - 1; i++) if (kids[i].classList.contains('sys')) out.push(Math.round(kids[i + 1].getBoundingClientRect().top - kids[i].getBoundingClientRect().bottom));
           return out;
         })(),
+        阴影: (() => {
+          const pick = sel => { const el = document.querySelector(sel); return el ? getComputedStyle(el).boxShadow : null; };
+          const o = { 对方文字气泡: pick('#msgs .m:not(.me) .bub'), 我方文字气泡: pick('#msgs .m.me .bub'),
+                      图片气泡: pick('#msgs .bub.imgp'), 对方图片气泡: pick('#msgs .m:not(.me) .bub.imgp') };
+          o.全部为无 = Object.values(o).every(v => v === null || v === 'none');
+          return o;
+        })(),
         avGap: (() => { const m = document.querySelector('#msgs .m:not(.me)'); if (!m) return null; const av = m.querySelector('.av'), bb = m.querySelector('.bub'); return av && bb ? Math.round(bb.getBoundingClientRect().left - av.getBoundingClientRect().right) : null; })(),
         相邻消息间距: (() => {
           const kids = [...document.querySelectorAll('#msgs > *')]; const out = [];
@@ -73,6 +80,8 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     chk('我方气泡是微信绿', geo.meBg === 'rgb(149, 236, 105)', geo.meBg);
     chk('对方气泡是白色', geo.otherBg === 'rgb(255, 255, 255)', geo.otherBg);
     chk('正文字号 14px', geo.fontSize === '14px', geo.fontSize);
+    chk('气泡没有阴影（我方/对方/图片气泡都不许有）',
+      geo.阴影.全部为无 === true, JSON.stringify(geo.阴影));
     chk('气泡高度均正常', geo.rowHeights.length > 0 && geo.rowHeights.every(h => h > 0), geo.rowHeights.join(','));
     if (geo.标记上方间距.length) {
       const 上 = Math.min(...geo.标记上方间距), 下 = Math.min(...geo.标记下方间距), 消 = Math.min(...geo.相邻消息间距);
@@ -887,6 +896,74 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   chk('点最新那张缩略图直接进灯箱、Esc 关闭',
     gal.点的是最新 && gal.点缩略图后.画廊关 && gal.点缩略图后.灯箱开 && /^\d+ \/ \d+$/.test(gal.点缩略图后.计数) && gal.Esc后画廊关,
     JSON.stringify({ 点的是最新: gal.点的是最新, 点后: gal.点缩略图后, Esc: gal.Esc后画廊关 }));
+
+  // ---------- 12b. 层级：从画廊点进图片详情，关闭只退一层（回画廊） ----------
+  const lay = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const $ = id => document.getElementById(id);
+    const imgN = x => x.msgs.reduce((a, m) => a + (m.url ? 1 : 0), 0);
+    const s = V.sortedSessions().slice().sort((a, b) => imgN(b) - imgN(a))[0];
+    V.openSession(s.id);
+    await sleep(600);
+    // 同样临时克隆图片消息凑够 300 张，让「滚动位置还原」这个断言真的有意义
+    let injected = 0;
+    if (V.sessionImages().length < 121 && V.sessionImages().length > 0) {
+      const proto = s.msgs.find(x => x.url), base = V.sessionImages()[0].ts, before = s.msgs.length;
+      for (let k = 0; k < 300; k++) { const m = Object.assign({}, proto); m.ts = base + k * 1000; s.msgs.push(m); }
+      s.n = s.msgs.length; injected = s.msgs.length - before;
+      V.openSession(s.id); await sleep(600);
+    }
+    const out = { 会话: s.name, 图数: V.sessionImages().length };
+
+    // ① 从「会话里点图」进灯箱 → 关掉后不应冒出画廊
+    const w = document.querySelector('#msgs .imgwrap');
+    out.会话里有图 = !!w;
+    if (w) {
+      w.click(); await sleep(600);
+      out.从会话进灯箱 = { 灯箱开: $('lb').classList.contains('on'), 画廊关: !$('gal').classList.contains('on') };
+      $('lb-close').click(); await sleep(400);
+      out.从会话关掉后 = { 灯箱关: !$('lb').classList.contains('on'), 画廊没冒出来: !$('gal').classList.contains('on') };
+    }
+
+    // ② 从画廊点缩略图 → 关灯箱只退一层，回到画廊
+    V.openGallery(); await sleep(900);
+    const grid = $('gal-grid');
+    grid.scrollTop = 0;                            // 先上滑触发续载，制造一个非零滚动位置
+    await sleep(800);
+    const before = { 格子: document.querySelectorAll('#gal .gal-cell').length, scrollTop: Math.round(grid.scrollTop) };
+    const cells = [...document.querySelectorAll('#gal .gal-cell')];
+    const pick = cells[5] || cells[0];
+    out.点的下标 = +pick.dataset.at; out.加载过一批 = before.格子;
+    pick.click(); await sleep(700);
+    out.进详情 = { 灯箱开: $('lb').classList.contains('on'), 画廊关: !$('gal').classList.contains('on'), 计数: $('lb-pos').textContent };
+    $('lb-close').click(); await sleep(500);
+    out.点关闭 = { 灯箱关: !$('lb').classList.contains('on'), 回到画廊: $('gal').classList.contains('on'),
+                   格子没重建: document.querySelectorAll('#gal .gal-cell').length === before.格子,
+                   滚动位置还原: Math.round(grid.scrollTop) - before.scrollTop };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(300);
+    out.再按Esc = { 画廊关: !$('gal').classList.contains('on'), 灯箱关: !$('lb').classList.contains('on') };
+
+    // ③ 在灯箱里按 Esc 也应退回画廊
+    V.openGallery(); await sleep(700);
+    [...document.querySelectorAll('#gal .gal-cell')][0].click(); await sleep(600);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(400);
+    out.灯箱里按Esc = { 回画廊: $('gal').classList.contains('on'), 灯箱关: !$('lb').classList.contains('on') };
+    V.closeGallery(); V.closeLB();
+    out.注入了临时图片 = injected;
+    if (injected) { s.msgs.length = s.n - injected; s.n = s.msgs.length; V.openSession(s.id); await sleep(300); }
+    return out;
+  });
+  chk('从会话里点图进灯箱，关掉后不会莫名冒出画廊',
+    !lay.会话里有图 || (lay.从会话进灯箱.灯箱开 && lay.从会话进灯箱.画廊关 && lay.从会话关掉后.灯箱关 && lay.从会话关掉后.画廊没冒出来),
+    JSON.stringify(lay.从会话进灯箱) + ' → ' + JSON.stringify(lay.从会话关掉后));
+  chk('画廊点进图片详情后，关闭只退一层回到画廊（不是一路退回会话）',
+    lay.进详情.灯箱开 && lay.进详情.画廊关 && lay.进详情.计数 === (lay.点的下标 + 1) + ' / ' + lay.图数
+    && lay.点关闭.灯箱关 && lay.点关闭.回到画廊 && lay.点关闭.格子没重建 && lay.点关闭.滚动位置还原 === 0
+    && lay.再按Esc.画廊关 && lay.再按Esc.灯箱关,
+    JSON.stringify({ 图数: lay.图数, 已加载: lay.加载过一批, 下标: lay.点的下标, 计数: lay.进详情.计数, 关闭后: lay.点关闭, 再按Esc: lay.再按Esc }));
+  chk('在灯箱里按 Esc 同样只退回画廊一层',
+    lay.灯箱里按Esc.回画廊 && lay.灯箱里按Esc.灯箱关, JSON.stringify(lay.灯箱里按Esc));
 
   // 收尾：恢复进入本节前的会话与干净状态
   await page.evaluate(async id => {

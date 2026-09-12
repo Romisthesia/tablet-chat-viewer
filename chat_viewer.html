@@ -101,7 +101,7 @@ button:disabled{opacity:.45;cursor:default}
 .m .col{max-width:min(660px,72%);display:flex;flex-direction:column;min-width:0}
 .m.me .col{align-items:flex-end}
 .m .who{font-size:11.5px;color:var(--txt-dim);margin:0 2px 3px}
-.bub{position:relative;background:var(--bub-other);color:var(--bub-other-txt);border-radius:var(--radius);padding:8px 12px;line-height:1.62;word-break:break-word;white-space:pre-wrap;box-shadow:var(--shadow);font-size:14px}
+.bub{position:relative;background:var(--bub-other);color:var(--bub-other-txt);border-radius:var(--radius);padding:8px 12px;line-height:1.62;word-break:break-word;white-space:pre-wrap;font-size:14px}
 .m.me .bub{background:var(--bub-me);color:var(--bub-me-txt)}
 /* 图片消息不该有气泡底色：.m.me .bub 的优先级(0,3,0)高于 .bub.imgp(0,2,0)，
    所以必须带上 .m.me 一起写，否则我方图片会被套上绿色气泡 */
@@ -120,7 +120,7 @@ html[data-theme="dark"] .col .tm{color:#8a8a8a}
 .note-tag{position:absolute;left:0;top:0;background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;padding:1px 6px;border-bottom-right-radius:6px}
 mark{background:var(--mark);color:inherit;border-radius:2px}
 .m.flash .bub{animation:fl 1.5s ease-out}
-@keyframes fl{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:var(--shadow)}}
+@keyframes fl{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:none}}
 #jumpbar{position:absolute;right:26px;bottom:20px;display:none;z-index:5}
 #jumpbar.on{display:block}
 #jumpbar button{border-radius:20px;box-shadow:0 2px 10px rgba(0,0,0,.18)}
@@ -1082,7 +1082,7 @@ function exportSessionHTML(s) {
     + '.w{max-width:900px;margin:0 auto}.sys{text-align:center;margin:10px 0}.sys span{font-size:12px;color:#999;background:rgba(0,0,0,.06);padding:3px 10px;border-radius:9px}'
     + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
-    + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:14px}'
+    + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;font-size:14px}'
     + '.m.me .bub{background:#95ec69}.bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
     + '.tm{margin-top:3px;font-size:10px;color:#999;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:.02em}'
     + '.imgwrap img{max-width:280px;max-height:280px;border-radius:5px}h1{font-size:17px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#999;font-size:12px;margin-bottom:20px}';
@@ -1116,7 +1116,7 @@ $('btn-export-all').onclick = async () => {
 };
 
 /* ==================== 8. 灯箱 ==================== */
-let lbZoom = false, lbList = [], lbIdx = -1;
+let lbZoom = false, lbList = [], lbIdx = -1, lbFromGal = false;
 /* 当前会话里所有图片，按消息顺序 —— 灯箱靠它在图片间切换 */
 function sessionImages() {
   const s = S.cur; if (!s) return [];
@@ -1135,9 +1135,10 @@ function renderLB() {
   $('lb-open').onclick = () => window.open(it.url, '_blank');
   $('lb-copy').onclick = async () => { try { await navigator.clipboard.writeText(it.url); $('lb-copy').textContent = '已复制'; setTimeout(() => $('lb-copy').textContent = '复制链接', 1200); } catch (e) { prompt('手动复制：', it.url); } };
 }
-function openLB(idx, list) {
+function openLB(idx, list, fromGal) {
   lbList = list || sessionImages();
   if (!lbList.length) return;
+  lbFromGal = !!fromGal;                 // 记下是不是从画廊点进来的：关掉时要退回画廊，而不是一路退回会话
   lbIdx = Math.max(0, Math.min(idx, lbList.length - 1));
   renderLB();
   $('lb').classList.add('on');
@@ -1147,11 +1148,19 @@ function lbStep(d) {
   lbIdx = (lbIdx + d + lbList.length) % lbList.length;      // 首尾循环
   renderLB();
 }
-function closeLB() { $('lb').classList.remove('on'); }
+function closeLB() {
+  $('lb').classList.remove('on');
+  if (lbFromGal) { lbFromGal = false; reopenGallery(); }    // 只退一层：回到画廊（画廊内容不重建，滚动位置也还原）
+}
+function reopenGallery() {
+  const g = $('gal'); if (!g || !galList.length) return;
+  g.classList.add('on');
+  const grid = $('gal-grid'); if (grid) grid.scrollTop = galScrollTop;
+}
 
 /* 会话内图片画廊：缩略图懒加载 + 分批渲染（某个会话有 3150 张，一次全塞进 DOM 会卡）。
    点缩略图 → 关画廊、开灯箱，左右翻的就是当前这批图（受「只看某人」筛选影响）。 */
-let galList = [], galFrom = 0, galBusy = false;
+let galList = [], galFrom = 0, galBusy = false, galScrollTop = 0;
 const GAL_STEP = 120;          // 每批张数
 function openGallery() {
   if (!S.cur) return;
@@ -1163,7 +1172,9 @@ function openGallery() {
     g.addEventListener('click', e => {
       if (e.target.id === 'gal') { g.classList.remove('on'); return; }   // 点空白处关掉
       const c = e.target.closest('.gal-cell'); if (!c) return;
-      g.classList.remove('on'); openLB(+c.dataset.at, galList);
+      galScrollTop = $('gal-grid') ? $('gal-grid').scrollTop : 0;
+      g.classList.remove('on');
+      openLB(+c.dataset.at, galList, true);        // true = 从画廊进来的
     });
   }
   g.innerHTML = '<div class="gal-top"><b>本会话图片</b>' +
@@ -1456,9 +1467,9 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    const g = $('gal'); if (g && g.classList.contains('on')) { closeGallery(); return; }   // 画廊优先关
-    closeLB(); $('dlg').classList.remove('on');
-    const pp = $('ppl'); if (pp) pp.remove();
+    const g = $('gal'); if (g && g.classList.contains('on')) { closeGallery(); return; }   // 画廊开着就先关画廊
+    closeLB();                                                                            // 灯箱开着则退回上一级（从画廊进来就回画廊）
+    if (!$('gal') || !$('gal').classList.contains('on')) { $('dlg').classList.remove('on'); const pp = $('ppl'); if (pp) pp.remove(); }
   }
   else if ($('lb').classList.contains('on') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
     e.preventDefault();
