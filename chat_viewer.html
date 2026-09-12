@@ -71,7 +71,7 @@ button:disabled{opacity:.45;cursor:default}
 /* 头像/侧栏行不该出现文字光标（浏览器「光标浏览 F7」或第三方脚本把页面设为可编辑时会冒出来），
    这里做防护：不可选中 + 光标颜色透明，光标即使在也不可见 */
 .av{user-select:none;caret-color:transparent}
-.row .av{width:38px;height:38px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500;overflow:hidden;padding:0}
+.row .av{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:500;overflow:hidden;padding:0}
 .row .av.gr{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1px;background:var(--img-ph)}
 .row .mid{flex:1;min-width:0}
 .row .n1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
@@ -97,7 +97,7 @@ button:disabled{opacity:.45;cursor:default}
 .sys span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
 .m{display:flex;gap:9px;margin-bottom:14px;align-items:flex-start}   /* 消息间距要大于头像↔气泡的 9px */
 .m.me{flex-direction:row-reverse}
-.m .av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13.5px;cursor:default;user-select:none}
+.m .av{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13.5px;cursor:default;user-select:none}
 .m .col{max-width:min(660px,72%);display:flex;flex-direction:column;min-width:0}
 .m.me .col{align-items:flex-end}
 .m .who{font-size:11.5px;color:var(--txt-dim);margin:0 2px 3px}
@@ -165,7 +165,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 .ppl-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px}
 .ppl-row:hover{background:var(--side-hover)}
 .ppl-row.on{background:var(--accent);color:#fff}
-.ppl-av{width:20px;height:20px;border-radius:4px;overflow:hidden;flex:none;display:flex}
+.ppl-av{width:20px;height:20px;border-radius:50%;overflow:hidden;flex:none;display:flex}
 .ppl-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ppl-c{font-size:11.5px;color:var(--txt-dim);flex:none}
 .ppl-row.on .ppl-c{color:rgba(255,255,255,.85)}
@@ -194,6 +194,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #dlg .cache-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #dlg label.inline{display:flex;align-items:center;gap:6px;margin:0;font-size:13px;color:var(--txt);cursor:pointer}
 #dlg label.inline input{width:auto;margin:0}
+#dlg label.inline input[type=color]{width:38px;height:24px;padding:1px;cursor:pointer;flex:none}
 #dlg .tip{font-size:11.5px;color:var(--txt-dim);line-height:1.7;margin-top:6px}
 #dlg #set-msg{font-size:12px;color:var(--accent);margin-top:6px}
 #dlg .look-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -326,6 +327,10 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
       <button id="btn-avatar-clear">清除</button>
       <span id="avatar-preview"></span>
     </div>
+    <div class="cache-row">
+      <label class="inline"><input type="color" id="set-avatar-color"> 头像颜色（只改颜色，不动已上传的图片）</label>
+      <button id="btn-avatar-color-reset">恢复自动配色</button>
+    </div>
     <div class="tip">头像会等比缩放到 80px 后存在浏览器里（属于设置，与「清除缓存」无关）。在聊天或侧栏里<b>右键任意头像</b>也能直接给那个人设头像。</div>
     <label>本地缓存</label>
     <div class="cache-row">
@@ -372,7 +377,8 @@ const S = {
     dark: { me: '', other: '' }
   },
   stamp: true,           // 每条消息显示完整时间戳（关闭则完全不显示）
-  avatars: {}            // 昵称 -> 自定义头像 dataURL
+  avatars: {},           // 昵称 -> 自定义头像 dataURL
+  avatarColors: {}       // 昵称 -> 自定义头像颜色（覆盖自动配色）
 };
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -532,7 +538,12 @@ function imgBox(w, h) {
   const k = Math.min(M / w, M / h, 1);
   return { w: Math.max(40, Math.round(w * k)), h: Math.max(30, Math.round(h * k)), known: true };
 }
-function colorOf(name) { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return PAL[h % PAL.length]; }
+function colorOf(name) {
+  // 优先用「只用改颜色」设过的色，其次按昵称哈希自动配色
+  if (S.avatarColors && name && S.avatarColors[name]) return S.avatarColors[name];
+  let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return PAL[h % PAL.length];
+}
 /* 头像里的文字规则：3 字取后 2 字、2 字取全名、4 字及以上取前 2 字（1 字就 1 字）。
    按码点切分，避免 emoji / 生僻字被截断。 */
 function initialOf(name) {
@@ -554,8 +565,12 @@ function avatarFill(name, cell) {
   const body = img
     ? '<img src="' + esc(img) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">'
     : '<span style="color:#fff;font-size:' + fs.toFixed(1) + 'px;line-height:1;font-weight:500;white-space:nowrap">' + esc(txt) + '</span>';
-  return '<div title="' + esc(nm) + '" style="width:100%;height:100%;background:' + (img ? 'transparent' : colorOf(nm)) +
-    ';display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;caret-color:transparent">' + body + '</div>';
+  // 外面的小格保持圆角正方形（由 groupTile 决定），格内这个头像做成圆形：
+  // 留 3px 边距，圆才看得出来（否则方块底色和圆同色，等于没变）。
+  return '<div title="' + esc(nm) + '" style="width:100%;height:100%;background:transparent' +
+    ';display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;caret-color:transparent">' +
+    '<div style="width:calc(100% - 3px);height:calc(100% - 3px);border-radius:50%;overflow:hidden;flex:none;' +
+    'background:' + (img ? 'transparent' : colorOf(nm)) + ';display:flex;align-items:center;justify-content:center">' + body + '</div></div>';
 }
 /* 群聊里"最晚发过消息"的 n 个人（按时间从新到旧，按昵称去重） */
 function recentSenders(s, n) {
@@ -584,8 +599,8 @@ function groupTile(names, size) {
     'gap:' + gap + 'px;background:var(--img-ph)">' + tiles + '</div>';
 }
 function avatar(name, size) {
-  const sz = size || 34, rad = sz > 36 ? 5 : 4, nm = name || '';
-  const base = 'width:' + sz + 'px;height:' + sz + 'px;border-radius:' + rad + 'px';
+  const sz = size || 34, nm = name || '';
+  const base = 'width:' + sz + 'px;height:' + sz + 'px;border-radius:50%';   // 个人头像一律圆形
   const img = S.avatars && nm && S.avatars[nm];
   if (img) {
     return '<div class="av" data-name="' + esc(nm) + '" style="' + base + ';overflow:hidden">' +
@@ -1080,7 +1095,7 @@ $('btn-export-pkg').onclick = async () => {
 function exportSessionHTML(s) {
   const css = 'body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f5f5f5;margin:0;padding:24px 14px;color:#191919}'
     + '.w{max-width:900px;margin:0 auto}.sys{text-align:center;margin:10px 0}.sys span{font-size:12px;color:#999;background:rgba(0,0,0,.06);padding:3px 10px;border-radius:9px}'
-    + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
+    + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
     + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;font-size:14px}'
     + '.m.me .bub{background:#95ec69}.bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
@@ -1297,6 +1312,24 @@ $('btn-look-reset').onclick = () => {
 /* 精确时间戳 */
 $('set-stamp').onchange = e => { S.stamp = e.target.checked; saveConf(); if (S.cur) renderMsgs(false); };
 /* 自定义头像 */
+/* 头像颜色：只改颜色（覆盖按昵称的自动配色），不影响已上传的图片 */
+function currentAvatarName() { const s = $('set-avatar-who'); return s ? s.value : ''; }
+function syncAvatarColor() {
+  const inp = $('set-avatar-color'); if (!inp) return;
+  const n = currentAvatarName();
+  inp.disabled = !n;
+  inp.value = n ? toHex(colorOf(n)) : '#cccccc';
+}
+function refreshAvatars() { renderSidebar(); if (S.cur) renderMsgs(false); updateAvatarPreview(); }
+$('set-avatar-color').oninput = e => {
+  const n = currentAvatarName(); if (!n) return;
+  S.avatarColors[n] = e.target.value; saveConf(); refreshAvatars();
+};
+$('btn-avatar-color-reset').onclick = () => {
+  const n = currentAvatarName();
+  if (!n) { setMsg('先在左边选一个人。'); return; }
+  delete S.avatarColors[n]; saveConf(); refreshAvatars(); setMsg('「' + n + '」已恢复按昵称的自动配色。');
+};
 $('set-avatar-who').onchange = updateAvatarPreview;
 $('btn-avatar-pick').onclick = () => {
   const n = $('set-avatar-who').value;
@@ -1431,13 +1464,14 @@ function fillAvatarSelect() {
   const want = window.__avatarSel || sel.value;
   if (want && !list.some(x => x[0] === want)) list = [[want, 0]].concat(list);   // 保证选中的那个人一定在列表里
   sel.innerHTML = '<option value="">（选择一个人）</option>' + list.map(([n, c]) =>
-    '<option value="' + esc(n) + '"' + (n === want ? ' selected' : '') + '>' + esc(n) + '（' + c.toLocaleString() + ' 条）' + (S.avatars[n] ? ' · 已设头像' : '') + '</option>').join('');
+    '<option value="' + esc(n) + '"' + (n === want ? ' selected' : '') + '>' + esc(n) + '（' + c.toLocaleString() + ' 条）' + (S.avatars[n] ? ' · 已设头像' : '') + (S.avatarColors[n] ? ' · 已改色' : '') + '</option>').join('');
   updateAvatarPreview();
 }
 function updateAvatarPreview() {
   const el = $('avatar-preview'); if (!el) return;
   const n = $('set-avatar-who').value;
   el.innerHTML = n ? avatar(n, 28) : '';
+  syncAvatarColor();
 }
 /* 等比缩放到 max 边长，转成 dataURL（避免把原图几 MB 塞进浏览器存储） */
 function shrinkImage(file, max) {
@@ -1478,7 +1512,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); }
 });
 function saveConf() { try { localStorage.setItem('chatview.conf', JSON.stringify({ theme: S.theme, sort: S.sort, showImg: S.showImg, meId: S.meId, meName: S.meName, remember: S.remember,
-                     radius: S.radius, colors: S.colors, stamp: S.stamp, avatars: S.avatars })); } catch (e) { } }
+                     radius: S.radius, colors: S.colors, stamp: S.stamp, avatars: S.avatars, avatarColors: S.avatarColors })); } catch (e) { } }
 function loadConf() {
   try {
     const c = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
@@ -1503,6 +1537,7 @@ function loadConf() {
     }
     if (typeof c.stamp === 'boolean') S.stamp = c.stamp;   // 要能存「关」，不能只认 true
     if (c.avatars && typeof c.avatars === 'object') S.avatars = c.avatars;
+    if (c.avatarColors && typeof c.avatarColors === 'object') S.avatarColors = c.avatarColors;
   } catch (e) { }
   applyTheme();
   applyLook();
@@ -1572,7 +1607,7 @@ async function boot() {
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
   openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf,
-  doSearch, findHits, searchIndex, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
+  colorOf, currentAvatarName, syncAvatarColor, refreshAvatars, doSearch, findHits, searchIndex, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
 boot();
 </script>
 </body>

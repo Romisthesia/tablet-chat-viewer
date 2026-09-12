@@ -965,6 +965,89 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   chk('在灯箱里按 Esc 同样只退回画廊一层',
     lay.灯箱里按Esc.回画廊 && lay.灯箱里按Esc.灯箱关, JSON.stringify(lay.灯箱里按Esc));
 
+  // ---------- 13. 头像：个人圆形 + 群聊拼图内也圆形 + 只改颜色 ----------
+  const av = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const $ = id => document.getElementById(id);
+    const cs = el => el ? getComputedStyle(el) : null;
+    const R = sel => { const el = document.querySelector(sel); return el ? cs(el).borderRadius : null; };
+
+    $('btn-set').click();                       // 打开设置（正常入口）
+    await sleep(400);
+    // 优先选「群里出现的人」——这样聊天头像和拼图小块都能验到同一个人
+    const tile0 = document.querySelector('#list .row .av.gr [title]');
+    const who = tile0 ? tile0.getAttribute('title')
+      : Object.entries(S.sessions.reduce((a, s) => { for (const m of s.msgs) a[m.fromName] = (a[m.fromName] || 0) + 1; return a; }, {}))
+        .sort((x, y) => y[1] - x[1])[0][0];
+    const tileOf = n => [...document.querySelectorAll('#list .row .av.gr [title]')].find(t => t.getAttribute('title') === n);
+    const sel = $('set-avatar-who');
+    sel.value = who; sel.dispatchEvent(new Event('change'));
+    await sleep(300);
+    const sess = S.sessions.find(x => x.msgs.some(m => (m.fromName || '') === who)) || S.sessions[0];
+    V.openSession(sess.id);
+    await sleep(500);
+
+    const out = { 会话: sess.name, 选中: who, 自动配色: V.colorOf(who) };
+
+    // ① 圆形：聊天/侧栏/设置预览 = 圆；拼图外框仍是圆角方形、拼图内头像 = 圆
+    out.圆形 = {
+      聊天: R('#msgs .m .av'), 侧栏私聊: R('#list .row .av:not(.gr)'), 设置预览: R('#avatar-preview > .av'),
+      拼图外框: R('#list .row .av.gr'), 拼图内头像: R('#list .row .av.gr [title] > div')
+    };
+    out.拼图外框仍是圆角方形 = out.圆形.拼图外框 !== '50%' && parseFloat(out.圆形.拼图外框) > 0;
+
+    // ② 只改颜色
+    const inp = $('set-avatar-color');
+    out.颜色框 = { 可用: !inp.disabled, 初值: inp.value, 初值等于自动配色: inp.value.toLowerCase() === V.colorOf(who).toLowerCase() };
+    inp.value = '#ff00aa'; inp.dispatchEvent(new Event('input'));
+    await sleep(500);
+    const mEl = [...document.querySelectorAll('#msgs .m')].find(el => (S.cur.msgs[+el.id.slice(2)].fromName || '') === who);
+    const conf = JSON.parse(localStorage.getItem('chatview.conf') || '{}');
+    out.改色后 = {
+      colorOf: V.colorOf(who), 记在状态里: S.avatarColors[who],
+      聊天头像底色: mEl ? cs(mEl.querySelector('.av')).backgroundColor : null,
+      拼图里那个人的圆: (() => { const tt = tileOf(who); const c = tt && tt.firstElementChild; return c ? cs(c).backgroundColor : null; })(),
+      拼图块里是不是图片: (() => { const tt = tileOf(who); return tt ? !!tt.querySelector('img') : null; })(),
+      存进浏览器: conf.avatarColors ? conf.avatarColors[who] : null
+    };
+    $('btn-avatar-color-reset').click();
+    await sleep(500);
+    out.恢复自动 = { colorOf还原: V.colorOf(who) === out.自动配色, 状态里已删: !Object.prototype.hasOwnProperty.call(S.avatarColors, who) };
+
+    // ③ 上传的头像不受影响（改色不动图片）
+    S.avatars[who] = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    V.refreshAvatars(); await sleep(400);
+    inp.value = '#123456'; inp.dispatchEvent(new Event('input'));
+    await sleep(500);
+    const mEl2 = [...document.querySelectorAll('#msgs .m')].find(el => (S.cur.msgs[+el.id.slice(2)].fromName || '') === who);
+    out.图片与颜色并存 = {
+      头像图片还在: !!S.avatars[who],
+      聊天里是图片: mEl2 ? !!mEl2.querySelector('.av img') : null,
+      颜色也记下了: S.avatarColors[who] === '#123456'
+    };
+    // 清理
+    delete S.avatars[who]; delete S.avatarColors[who];
+    document.getElementById('btn-avatar-clear').click();   // 走正常清除路径
+    V.refreshAvatars(); await sleep(300);
+    $('dlg').classList.remove('on');
+    await sleep(300);
+    return out;
+  });
+  chk('个人头像全部改成圆形（聊天、侧栏私聊、设置预览）',
+    av.圆形.聊天 === '50%' && av.圆形.侧栏私聊 === '50%' && av.圆形.设置预览 === '50%', JSON.stringify(av.圆形));
+  chk('群聊拼图：外框仍是圆角正方形，里面的用户头像变成圆',
+    av.拼图外框仍是圆角方形 && av.圆形.拼图内头像 === '50%', JSON.stringify({ 外框: av.圆形.拼图外框, 内头像: av.圆形.拼图内头像 }));
+  chk('可以只改头像颜色：生效于聊天与拼图、存进浏览器、可恢复自动配色',
+    av.颜色框.可用 && av.颜色框.初值等于自动配色
+    && av.改色后.colorOf === '#ff00aa' && av.改色后.聊天头像底色 === 'rgb(255, 0, 170)'
+    && av.改色后.拼图里那个人的圆 === 'rgb(255, 0, 170)' && av.改色后.存进浏览器 === '#ff00aa'
+    && av.恢复自动.colorOf还原 && av.恢复自动.状态里已删,
+    JSON.stringify(av.改色后) + ' / 恢复: ' + JSON.stringify(av.恢复自动));
+  chk('改颜色不影响已上传的头像图片（两者能并存）',
+    av.图片与颜色并存.头像图片还在 && av.图片与颜色并存.聊天里是图片 && av.图片与颜色并存.颜色也记下了,
+    JSON.stringify(av.图片与颜色并存));
+
   // 收尾：恢复进入本节前的会话与干净状态
   await page.evaluate(async id => {
     const V = window.__viewer;
