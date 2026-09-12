@@ -99,13 +99,10 @@ button:disabled{opacity:.45;cursor:default}
 /* 图片消息不该有气泡底色：.m.me .bub 的优先级(0,3,0)高于 .bub.imgp(0,2,0)，
    所以必须带上 .m.me 一起写，否则我方图片会被套上绿色气泡 */
 .bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}
-/* 时间戳在气泡外侧（不是气泡内），所以选择器必须是 .col .tm —— 之前写 .bub .tm 一直没生效 */
-.col .tm{font-size:10.5px;color:var(--txt-dim);white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}
-.m.me .col .tm{color:inherit;opacity:.5}
-.col .tm.side{margin-left:7px}
-.m.me .col .tm.side{margin-left:0;margin-right:7px}
-.col .tm.blk{margin-top:3px;font-size:10px;color:var(--txt-dim);opacity:.75}
-.m.me .col .tm.blk{color:inherit;opacity:.55}
+/* 时间戳在气泡外侧（不是气泡内），所以选择器必须是 .col .tm —— 之前写 .bub .tm 一直没生效。
+   现在只有「完整精确时间」一种形态，排在气泡下方、与外侧边缘对齐。 */
+.col .tm{font-size:10px;color:var(--txt-dim);white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4;margin-top:3px}
+.m.me .col .tm{color:inherit;opacity:.55}
 html[data-theme="dark"] .col .tm{color:#8a8a8a}
 .bub .hid{display:none}
 .bub:hover .hid{display:inline}
@@ -266,10 +263,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
       <label class="inline">我方<input type="color" id="set-c-me-d"></label>
       <label class="inline">对方<input type="color" id="set-c-other-d"></label>
     </div>
-    <label>每条消息显示精确时间戳</label>
+    <label>消息时间戳</label>
     <div class="cache-row">
-      <label class="inline"><input type="checkbox" id="set-stamp"> 显示「年-月-日 时:分:秒」（关闭时只在间隔较久处显示时:分）</label>
+      <label class="inline"><input type="checkbox" id="set-stamp"> 在每条消息旁显示精确时间戳（年-月-日 时:分:秒）</label>
     </div>
+    <div class="tip">关闭后每条消息旁不再显示时间；鼠标悬停气泡仍可看到该条的精确时间。消息之间、跨天的时间标记一律显示精确时间。</div>
     <label>自定义头像</label>
     <div class="cache-row">
       <select id="set-avatar-who"></select>
@@ -317,7 +315,7 @@ const S = {
     light: { me: '', other: '' },
     dark: { me: '', other: '' }
   },
-  stamp: false,          // 每条消息显示完整时间戳
+  stamp: true,           // 每条消息显示完整时间戳（关闭则完全不显示）
   avatars: {}            // 昵称 -> 自定义头像 dataURL
 };
 const $ = id => document.getElementById(id);
@@ -583,7 +581,7 @@ function msgHTML(m, idx, q) {
   let body;
   if (m.t === 'T') {
     let txt = hl(m.text, q);
-    body = '<div class="bub" data-i="' + idx + '">' + txt + '</div>';
+    body = '<div class="bub" data-i="' + idx + '" title="' + fmtTime(m.ts) + '">' + txt + '</div>';
   } else if (m.t === 'I' || m.t === 'N') {
     const label = m.t === 'N' ? '<div class="note-tag">笔记</div>' : '';
     const bx = imgBox(m.w, m.h);
@@ -591,13 +589,12 @@ function msgHTML(m, idx, q) {
     const inner = (m.url && isImgOn())
       ? '<img loading="lazy" decoding="async"' + sizeAttr + ' src="' + esc(m.url) + '" alt="" onerror="imgErr(this)">'
       : '<div class="bad">' + (m.url ? '图片已隐藏' : '无图床链接') + (m.url ? '<a href="' + esc(m.url) + '" target="_blank" rel="noreferrer">打开原图</a>' : '') + '</div>';
-    body = '<div class="bub imgp" data-i="' + idx + '"><div class="imgwrap" data-url="' + esc(m.url) + '" data-w="' + m.w + '" data-h="' + m.h + '" title="点击查看大图">' + label + inner + '</div></div>';
+    body = '<div class="bub imgp" data-i="' + idx + '" title="' + fmtTime(m.ts) + '"><div class="imgwrap" data-url="' + esc(m.url) + '" data-w="' + m.w + '" data-h="' + m.h + '" title="点击查看大图">' + label + inner + '</div></div>';
   } else {
     body = '<div class="bub" data-i="' + idx + '">[不支持的消息类型] ' + esc(m.text.slice(0, 200)) + '</div>';
   }
-  /* 时间戳：默认贴在气泡外侧底部（不占额外行高）；开启精确时间戳时较长，改到气泡下方并与外侧边缘对齐 */
-  const tm = '<span class="tm ' + (S.stamp ? 'blk' : 'side') + '" title="' + fmtTime(m.ts) + '">' +
-    (S.stamp ? fmtTime(m.ts) : fmtHM(m.ts)) + '</span>';
+  /* 时间戳只有一种形态：完整精确时间，排在气泡下方并与外侧边缘对齐；开关关掉就完全不渲染 */
+  const tm = S.stamp ? '<span class="tm" title="' + fmtTime(m.ts) + '">' + fmtTime(m.ts) + '</span>' : '';
   const rowStyle = S.stamp
     ? 'display:flex;flex-direction:column;align-items:' + (me ? 'flex-end' : 'flex-start')
     : 'display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '');
@@ -614,7 +611,7 @@ function renderMsgs(preserve) {
   for (let i = S.startIdx; i < s.n; i++) {
     const m = s.msgs[i];
     if (i === S.startIdx || !sameDay(lastTs, m.ts)) html += '<div class="day"><span>' + fmtDay(m.ts) + '</span></div>';
-    else if (m.ts - lastTs > 5 * 60000) html += '<div class="sys"><span>' + fmtHM(m.ts) + '</span></div>';
+    else if (m.ts - lastTs > 5 * 60000) html += '<div class="sys"><span>' + fmtTime(m.ts) + '</span></div>';
     html += msgHTML(m, i, q);
     lastTs = m.ts;
   }
@@ -861,7 +858,7 @@ function exportSessionHTML(s) {
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
     + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:14px}'
     + '.m.me .bub{background:#95ec69}.bub.imgp,.m.me .bub.imgp{background:transparent;box-shadow:none;padding:0}.tm{font-size:10.5px;color:#aaa;white-space:nowrap;user-select:none;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1.4}'
-    + '.tm.side{margin:0 7px;align-self:flex-end}.tm.blk{margin-top:3px;font-size:10px;color:#999}'
+    + '.tm{margin-top:3px;font-size:10px;color:#999;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:.02em}'
     + '.imgwrap img{max-width:280px;max-height:280px;border-radius:5px}h1{font-size:17px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#999;font-size:12px;margin-bottom:20px}';
   let h = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.name) + '</title><style>' + css + '</style></head><body><div class="w">'
     + '<h1>' + esc(s.name) + '</h1><div class="sub">' + (s.kind === 'GROUP' ? '群聊' : '私聊') + ' · ' + s.n.toLocaleString() + ' 条 · ' + fmtTime(s.first) + ' ~ ' + fmtTime(s.last) + '</div>';
@@ -879,10 +876,8 @@ function exportSessionHTML(s) {
     }
     else body = '<div class="bub">[' + (m.t === 'N' ? '笔记' : '图片') + ']</div>';
     h += '<div class="m' + (me ? ' me' : '') + '"><div class="av" style="background:' + colorOf(m.fromName) + '">' + esc(initialOf(m.fromName)) + '</div>'
-      + '<div class="col">' + who + '<div style="' + (S.stamp
-        ? 'display:flex;flex-direction:column;align-items:' + (me ? 'flex-end' : 'flex-start')
-        : 'display:flex;align-items:flex-end;' + (me ? 'flex-direction:row-reverse' : '')) + '">' + body
-      + '<span class="tm ' + (S.stamp ? 'blk' : 'side') + '">' + (S.stamp ? fmtTime(m.ts) : fmtHM(m.ts)) + '</span></div></div></div>';
+      + '<div class="col">' + who + '<div style="display:flex;flex-direction:column;align-items:' + (me ? 'flex-end' : 'flex-start') + '">' + body
+      + '<span class="tm">' + fmtTime(m.ts) + '</span></div></div></div>';
     lastTs = m.ts;
   }
   h += '</div></body></html>';
@@ -1189,7 +1184,7 @@ function loadConf() {
         if (c.otherColor) S.colors[k].other = c.otherColor;
       }
     }
-    if (c.stamp === true) S.stamp = true;
+    if (typeof c.stamp === 'boolean') S.stamp = c.stamp;   // 要能存「关」，不能只认 true
     if (c.avatars && typeof c.avatars === 'object') S.avatars = c.avatars;
   } catch (e) { }
   applyTheme();

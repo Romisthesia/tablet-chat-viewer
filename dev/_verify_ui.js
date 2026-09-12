@@ -379,6 +379,9 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   });
   chk('「恢复默认」还原圆角与颜色', reset.圆角 === 6 && reset.内联覆盖 === '', JSON.stringify(reset));
 
+  const stampDefault = await page.evaluate(() => document.getElementById('set-stamp').checked);
+  chk('时间戳开关默认开启', stampDefault === true, String(stampDefault));
+
   const stamp = await page.evaluate(async () => {
     const c = document.getElementById('set-stamp'); c.checked = true; c.dispatchEvent(new Event('change'));
     await new Promise(x => setTimeout(x, 500));
@@ -401,19 +404,36 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
   chk('精确时间戳排在气泡下方、与外侧边缘对齐', stampPos.在气泡下方 && stampPos.与外侧对齐, JSON.stringify(stampPos));
   chk('时间戳样式已生效（10px + 等宽数字）', stampPos.字号 === '10px' && stampPos.等宽数字, stampPos.字号 + ' / 等宽=' + stampPos.等宽数字);
 
+  // 消息之间的时间标记（间隔超过 5 分钟处）也应该是完整精确时间
+  const sysMark = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('#msgs .sys span')].map(e => e.textContent);
+    return { 标记数: all.length, 前几个: all.slice(0, 3), 全为完整时间: all.length > 0 && all.every(x => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(x)) };
+  });
+  if (sysMark.标记数 > 0) chk('消息之间的时间标记改成完整精确时间', sysMark.全为完整时间, JSON.stringify(sysMark));
+  else console.log('（当前会话消息间隔都不足 5 分钟，没有中间时间标记可查）');
+
+  // 关掉开关 → 每条消息旁完全不显示时间；气泡悬停仍能拿到精确时间
   await page.evaluate(() => { const c = document.getElementById('set-stamp'); c.checked = false; c.dispatchEvent(new Event('change')); });
   await C.sleep(500);
-  const sidePos = await page.evaluate(() => {
-    const m = document.querySelector('#msgs .m.me') || document.querySelector('#msgs .m');
-    const bub = m.querySelector('.bub'), tm = m.querySelector('.tm');
-    const rb = bub.getBoundingClientRect(), rt = tm.getBoundingClientRect();
-    const cs = getComputedStyle(tm);
-    const me = m.classList.contains('me');
-    return { 贴在气泡侧边: (me ? rt.right <= rb.left + 1 : rt.left >= rb.right - 1),
-             底边对齐: Math.abs(rt.bottom - rb.bottom) < 4,
-             字号: cs.fontSize, 等宽数字: /tabular-nums/.test(cs.fontVariantNumeric), 内容: tm.textContent };
+  const off = await page.evaluate(() => {
+    const bub = document.querySelector('#msgs .m .bub');
+    return { 时间戳节点数: document.querySelectorAll('#msgs .tm').length,
+             消息数: document.querySelectorAll('#msgs .m').length,
+             气泡悬停提示: bub ? bub.getAttribute('title') : null,
+             存档值: (JSON.parse(localStorage.getItem('chatview.conf') || '{}')).stamp };
   });
-  chk('关闭后 时:分 贴在气泡外侧底部（不占额外行高）', sidePos.贴在气泡侧边 && sidePos.底边对齐 && sidePos.字号 === '10.5px' && sidePos.等宽数字, JSON.stringify(sidePos));
+  chk('关掉开关后每条消息旁完全没有时间戳', off.时间戳节点数 === 0 && off.消息数 > 0, JSON.stringify(off));
+  chk('时间戳关掉时气泡悬停仍显示精确时间', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(off.气泡悬停提示 || ''), String(off.气泡悬停提示));
+  chk('「关闭」这个状态能存下来', off.存档值 === false, String(off.存档值));
+
+  // 再打开，确认开关可来回切
+  await page.evaluate(() => { const c = document.getElementById('set-stamp'); c.checked = true; c.dispatchEvent(new Event('change')); });
+  await C.sleep(500);
+  const backOn = await page.evaluate(() => ({
+    时间戳节点数: document.querySelectorAll('#msgs .tm').length,
+    全为完整时间: [...document.querySelectorAll('#msgs .tm')].every(e => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(e.textContent))
+  }));
+  chk('重新打开后时间戳又全都回来（且都是完整时间）', backOn.时间戳节点数 > 0 && backOn.全为完整时间, JSON.stringify(backOn));
 
 
 

@@ -124,11 +124,31 @@ async function buildPkg(page) {
     dt.items.add(new File([txt], 'chat_data.json', { type: 'application/json' }));
     const el = document.getElementById('f-pkg'); el.files = dt.files; el.dispatchEvent(new Event('change', { bubbles: true }));
   }, pkgTxt);
-  await C.sleep(2500);
+  // 轮询等缓存真的落进 IndexedDB —— 固定 sleep 会抖（数据量、机器快慢都会影响）
+  const wrote = await (async () => {
+    for (let i = 0; i < 40; i++) {
+      const ok = await page.evaluate(async () => {
+        try {
+          const dbs = await indexedDB.databases();
+          if (!dbs.some(d => d.name === 'chatviewer')) return false;
+          const db = await new Promise((res, rej) => { const r = indexedDB.open('chatviewer'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+          const got = await new Promise(res => { try { const q = db.transaction('cache', 'readonly').objectStore('cache').get('last'); q.onsuccess = () => res(!!q.result); q.onerror = () => res(false); } catch (e) { res(false); } });
+          db.close();
+          return got;
+        } catch (e) { return false; }
+      });
+      if (ok) return i;
+      await C.sleep(250);
+    }
+    return -1;
+  })();
+  if (wrote < 0) console.log('（等待缓存写入超时，后续断言可能失败）');
   await page.goto('about:blank');
   await page.goto(C.PAGE, { waitUntil: 'load' });
   await page.waitForFunction('!!window.__viewer');
-  await C.sleep(2500);
+  // 等自动恢复真正完成（而不是死等固定时长）
+  await page.waitForFunction("document.getElementById('intro').classList.contains('hide')", { timeout: 20000 }).catch(() => { });
+  await C.sleep(400);
   const again = await page.evaluate(() => ({
     hidden: document.getElementById('intro').classList.contains('hide'),
     sessions: window.__viewer.S.sessions.length,
