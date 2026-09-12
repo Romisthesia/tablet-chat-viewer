@@ -63,14 +63,14 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
       bubbles: document.querySelectorAll('#msgs .m').length,
       meBubbles: document.querySelectorAll('#msgs .m.me').length,
       otherBubbles: document.querySelectorAll('#msgs .m:not(.me)').length,
-      dayChips: document.querySelectorAll('.day').length,
+      marks: document.querySelectorAll('.sys').length,
       imgTags: imgs.length, imgFailed: imgs.filter(i => i.complete && i.naturalWidth === 0).length
     };
   }, pick);
   console.log('渲染：' + JSON.stringify(render));
   chk('侧栏列出全部会话', render.rows === res.sessions.length, render.rows);
   chk('打开了最大会话并渲染出消息', render.bubbles > 0 && !!render.hd, render.hd + ' / ' + render.bubbles + ' 条');
-  chk('有日期分隔条', render.dayChips > 0, render.dayChips);
+  chk('有时间标记', render.marks > 0, render.marks);
   if (render.imgTags) chk('图片没有加载失败', render.imgFailed === 0, render.imgFailed + ' 张失败 / 共 ' + render.imgTags);
   if (pick.single) {
     const sp = await page.evaluate(async (id) => {

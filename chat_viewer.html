@@ -84,9 +84,8 @@ button:disabled{opacity:.45;cursor:default}
 #loadmore{text-align:center;padding:2px 0 12px}
 #loadmore button{font-size:12px;padding:4px 12px;border-radius:14px;background:transparent;border-color:var(--side-bd);color:var(--txt-dim)}
 #msgs{padding:0 18px;max-width:1000px;margin:0 auto}
-.day{text-align:center;margin:16px 0 12px}
-.day span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
-.sys{text-align:center;margin:8px 0}
+/* 时间标记：日期条与间隔标记已合并成这一种 */
+.sys{text-align:center;margin:12px 0 10px}
 .sys span{font-size:11.5px;color:var(--txt-dim);background:rgba(128,128,128,.12);padding:3px 11px;border-radius:9px}
 .m{display:flex;gap:9px;margin-bottom:6px;align-items:flex-start}
 .m.me{flex-direction:row-reverse}
@@ -133,8 +132,18 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 #lb .lb-top{height:46px;display:flex;align-items:center;gap:10px;padding:0 14px;color:#ddd;font-size:12.5px;flex:none}
 #lb .lb-top .sp{flex:1}
 #lb .lb-top .pos{color:#bbb;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
-#lb .lb-top #lb-prev,#lb .lb-top #lb-next{font-size:17px;line-height:1;padding:3px 13px}
 #lb .lb-top button:disabled{opacity:.28;cursor:default}
+/* 切图按钮：贴页面左右两端、竖直居中，做大一点保证可见性 */
+#lb .lb-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:3;
+  width:60px;height:60px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.14);color:#fff;font-size:30px;line-height:1;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  backdrop-filter:blur(2px);transition:background .12s,transform .12s;user-select:none}
+#lb .lb-nav:hover:not(:disabled){background:rgba(255,255,255,.32)}
+#lb .lb-nav:active:not(:disabled){transform:translateY(-50%) scale(.94)}
+#lb .lb-nav:disabled{opacity:.2;cursor:default}
+#lb .lb-nav.left{left:22px}
+#lb .lb-nav.right{right:22px}
 #lb .lb-top button{background:rgba(255,255,255,.12);color:#eee;border-color:transparent}
 #lb .lb-body{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
 #lb img{max-width:96%;max-height:92%;cursor:zoom-in;transition:transform .12s}
@@ -225,10 +234,12 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 <div class="dropmask" id="dropmask">松开即可导入</div>
 
 <div id="lb">
-  <div class="lb-top"><button id="lb-prev" title="上一张（←）">‹</button><button id="lb-next" title="下一张（→）">›</button><span id="lb-pos" class="pos"></span><span id="lb-info"></span><span class="sp"></span>
+  <div class="lb-top"><span id="lb-pos" class="pos"></span><span id="lb-info"></span><span class="sp"></span>
     <button id="lb-open">新窗口打开</button><button id="lb-copy">复制链接</button><button id="lb-close">关闭 (Esc)</button>
   </div>
   <div class="lb-body"><img id="lb-img" alt=""></div>
+  <button id="lb-prev" class="lb-nav left" title="上一张（←）" aria-label="上一张">‹</button>
+  <button id="lb-next" class="lb-nav right" title="下一张（→）" aria-label="下一张">›</button>
 </div>
 
 <div id="dlg">
@@ -444,6 +455,20 @@ function computeMe(sessions) {
 /* ==================== 2. 工具 ==================== */
 const pad = n => (n < 10 ? '0' + n : '' + n);
 function fmtTime(ts) { const d = new Date(ts); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+/* 时间标记：一套逻辑（日期条与间隔标记已合并）。
+   判定不看「间隔多久」，而看两条消息是否落在**同一个半整时槽位**里 ——
+   槽位按本地时钟的 :00–:29 / :30–:59 划分（槽位键带日期，所以跨天必然分割）。
+   格式统一为 年-月-日 时:分 —— 不带周几、不精确到秒。 */
+const HALF_SLOT = 30 * 60 * 1000;
+function halfSlot(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + '#' + Math.floor((d.getHours() * 60 + d.getMinutes()) / 30);
+}
+function fmtMark(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function needMark(prevTs, ts) { return !prevTs || halfSlot(prevTs) !== halfSlot(ts); }
 function fmtHM(ts) { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 function fmtDay(ts) { const d = new Date(ts); return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + '日一二三四五六'[d.getDay()] ; }
 function sameDay(a, b) { const x = new Date(a), y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); }
@@ -610,8 +635,7 @@ function renderMsgs(preserve) {
   let html = '', lastTs = 0;
   for (let i = S.startIdx; i < s.n; i++) {
     const m = s.msgs[i];
-    if (i === S.startIdx || !sameDay(lastTs, m.ts)) html += '<div class="day"><span>' + fmtDay(m.ts) + '</span></div>';
-    else if (m.ts - lastTs > 5 * 60000) html += '<div class="sys"><span>' + fmtTime(m.ts) + '</span></div>';
+    if (needMark(lastTs, m.ts)) html += '<div class="sys"><span>' + fmtMark(m.ts) + '</span></div>';
     html += msgHTML(m, i, q);
     lastTs = m.ts;
   }
@@ -853,7 +877,7 @@ $('btn-export-pkg').onclick = async () => {
 };
 function exportSessionHTML(s) {
   const css = 'body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f5f5f5;margin:0;padding:24px 14px;color:#191919}'
-    + '.w{max-width:900px;margin:0 auto}.day{text-align:center;margin:16px 0}.day span{font-size:12px;color:#999;background:rgba(0,0,0,.06);padding:3px 10px;border-radius:9px}'
+    + '.w{max-width:900px;margin:0 auto}.sys{text-align:center;margin:10px 0}.sys span{font-size:12px;color:#999;background:rgba(0,0,0,.06);padding:3px 10px;border-radius:9px}'
     + '.m{display:flex;gap:9px;margin-bottom:8px}.m.me{flex-direction:row-reverse}.av{width:34px;height:34px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}'
     + '.col{max-width:72%}.who{font-size:11.5px;color:#999;margin-bottom:3px}.m.me .col{display:flex;flex-direction:column;align-items:flex-end}'
     + '.bub{background:#fff;border-radius:6px;padding:8px 12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:14px}'
@@ -864,7 +888,7 @@ function exportSessionHTML(s) {
     + '<h1>' + esc(s.name) + '</h1><div class="sub">' + (s.kind === 'GROUP' ? '群聊' : '私聊') + ' · ' + s.n.toLocaleString() + ' 条 · ' + fmtTime(s.first) + ' ~ ' + fmtTime(s.last) + '</div>';
   let lastTs = 0;
   for (const m of s.msgs) {
-    if (!lastTs || !sameDay(lastTs, m.ts)) h += '<div class="day"><span>' + fmtDay(m.ts) + '</span></div>';
+    if (needMark(lastTs, m.ts)) h += '<div class="sys"><span>' + fmtMark(m.ts) + '</span></div>';
     const me = S.meId !== null && String(m.fromId) === String(S.meId);
     const who = (!me && s.kind === 'GROUP') ? '<div class="who">' + esc(m.fromName) + '</div>' : '';
     let body;
@@ -1254,7 +1278,7 @@ async function boot() {
 /* 暴露内部接口（自动化验证用） */
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
-  openLB, lbStep, closeLB, sessionImages };
+  openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark };
 boot();
 </script>
 </body>

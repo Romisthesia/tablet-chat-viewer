@@ -80,7 +80,9 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     console.log('群聊：' + JSON.stringify(grp));
     if (grp.kind === 'GROUP') chk('群聊显示发送者昵称', grp.who > 0, grp.who + ' 条带昵称');
     if (grp.imgTags) {
-      chk('图片真实从图床加载成功', grp.loaded > 0, grp.loaded + '/' + grp.imgTags + '（懒加载，只算已滚到的）');
+      chk('群聊里有图片消息', grp.imgTags > 0, grp.imgTags + ' 张');
+      if (grp.loaded > 0) console.log('  已加载 ' + grp.loaded + '/' + grp.imgTags + '（懒加载，只算已滚到视口内的）');
+      else console.log('  （视口内暂无已加载图片 —— 懒加载所致；「真能加载出来」由灯箱那条断言验证）');
       chk('图片尺寸被限制在气泡内', !grp.firstImg || (grp.firstImg.w <= 300 && grp.firstImg.h <= 300), JSON.stringify(grp.firstImg));
     }
     await page.screenshot({ path: C.path.join(C.OUT, 'ui_group.png') });
@@ -124,6 +126,26 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     chk('灯箱提供上一张/下一张按钮与「第 n / 共 m」计数',
       s1.total > 1 && /^\d+ \/ \d+$/.test(s1.pos.trim()) && !s1.prevOff && !s1.nextOff,
       JSON.stringify({ 计数: s1.pos, 共几张: s1.total }));
+
+    // 灯箱里的图是无懒加载的直取，等它真解码出来 —— 这才是「图床真能加载」的确定证据
+    const lbLoad = await page.evaluate(async () => {
+      const img = document.getElementById('lb-img');
+      for (let i = 0; i < 40 && !img.naturalWidth; i++) await new Promise(r => setTimeout(r, 250));
+      return { 宽: img.naturalWidth, 高: img.naturalHeight, 来源: img.src.slice(0, 34) };
+    });
+    chk('大图真实加载出来（不是占位/破图）', lbLoad.宽 > 0 && lbLoad.高 > 0, JSON.stringify(lbLoad));
+
+    const navGeo = await page.evaluate(() => {
+      const p = document.getElementById('lb-prev').getBoundingClientRect();
+      const n = document.getElementById('lb-next').getBoundingClientRect();
+      return {
+        上一张: { 距左: Math.round(p.left), 宽: Math.round(p.width), 高: Math.round(p.height), 居中偏差: Math.round(Math.abs((p.top + p.height / 2) - innerHeight / 2)) },
+        下一张: { 距右: Math.round(innerWidth - n.right), 宽: Math.round(n.width), 高: Math.round(n.height), 居中偏差: Math.round(Math.abs((n.top + n.height / 2) - innerHeight / 2)) }
+      };
+    });
+    chk('切图按钮贴在页面左右两端、竖直居中、够大',
+      navGeo.上一张.距左 <= 40 && navGeo.下一张.距右 <= 40 && navGeo.上一张.居中偏差 <= 2 && navGeo.下一张.居中偏差 <= 2 &&
+      navGeo.上一张.宽 >= 48 && navGeo.上一张.高 >= 48, JSON.stringify(navGeo));
 
     await page.evaluate(() => document.getElementById('lb-next').click());
     await C.sleep(450);
@@ -406,11 +428,38 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
 
   // 消息之间的时间标记（间隔超过 5 分钟处）也应该是完整精确时间
   const sysMark = await page.evaluate(() => {
-    const all = [...document.querySelectorAll('#msgs .sys span')].map(e => e.textContent);
-    return { 标记数: all.length, 前几个: all.slice(0, 3), 全为完整时间: all.length > 0 && all.every(x => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(x)) };
+    const S = window.__viewer.S, s = S.cur;
+    const kids = [...document.getElementById('msgs').children];
+    const texts = kids.filter(k => k.classList.contains('sys')).map(k => k.textContent.trim());
+    // 逐条核对：只有「两条消息不在同一个半整时槽位」时才该有标记。
+    // 判定用的是绝对时间的槽位（:00–:29 / :30–:59），不是「间隔多久」——
+    // 所以 19:05 → 19:30 这种只隔 25 分钟、但跨过半点的情况也必须有标记。
+    const slot = ts => { const d = new Date(ts); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + '#' + Math.floor((d.getHours() * 60 + d.getMinutes()) / 30); };
+    const bad = []; let lastTs = 0, sawMark = false, checked = 0, 跨半点短间隔 = 0;
+    for (const k of kids) {
+      if (k.classList.contains('sys')) { sawMark = true; continue; }
+      if (!k.classList.contains('m')) continue;
+      const i = +k.id.slice(2), ts = s.msgs[i].ts;
+      const gapMin = lastTs ? Math.round((ts - lastTs) / 60000) : null;
+      const should = !lastTs || slot(lastTs) !== slot(ts);
+      if (should !== sawMark) bad.push({ i, 间隔分钟: gapMin, 应有: should, 实际有: sawMark });
+      if (should && gapMin !== null && gapMin < 30) 跨半点短间隔++;
+      checked++; lastTs = ts; sawMark = false;
+    }
+    return { 标记数: texts.length, 核对条数: checked, 违规数: bad.length, 违规: bad.slice(0, 4), 跨半点短间隔,
+             格式统一: texts.length > 0 && texts.every(t => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(t)),
+             不带周几: !texts.some(t => /星期|周[一二三四五六日]/.test(t)),
+             无秒: !texts.some(t => /:\d{2}:\d{2}$/.test(t)),
+             前几个: texts.slice(0, 3) };
   });
-  if (sysMark.标记数 > 0) chk('消息之间的时间标记改成完整精确时间', sysMark.全为完整时间, JSON.stringify(sysMark));
-  else console.log('（当前会话消息间隔都不足 5 分钟，没有中间时间标记可查）');
+  chk('时间标记统一为「年-月-日 时:分」（不带周几、不到秒）',
+    sysMark.格式统一 && sysMark.不带周几 && sysMark.无秒, JSON.stringify({ 前几个: sysMark.前几个, 标记数: sysMark.标记数 }));
+  chk('分割按「半整时槽位」判定（不在同一槽位才分割）',
+    sysMark.核对条数 > 0 && sysMark.违规数 === 0,
+    '核对 ' + sysMark.核对条数 + ' 条，违规 ' + sysMark.违规数 + (sysMark.违规数 ? ' → ' + JSON.stringify(sysMark.违规) : ''));
+  chk('确实是按槽位而不是按「间隔 30 分钟」判定',
+    sysMark.跨半点短间隔 > 0,
+    '有 ' + sysMark.跨半点短间隔 + ' 处「间隔不足 30 分钟但跨过半整时」也插了标记');
 
   // 关掉开关 → 每条消息旁完全不显示时间；气泡悬停仍能拿到精确时间
   await page.evaluate(() => { const c = document.getElementById('set-stamp'); c.checked = false; c.dispatchEvent(new Event('change')); });
