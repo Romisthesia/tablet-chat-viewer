@@ -140,7 +140,10 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 .hit:hover{border-left:3px solid var(--accent);padding-left:9px}
 .hit .h-top{font-size:11.5px;color:var(--txt-dim);display:flex;gap:8px;margin-bottom:3px}
 .hit .h-body{font-size:13px;line-height:1.6;word-break:break-word;max-height:60px;overflow:hidden}
-.hitinfo{padding:8px 18px 4px;color:var(--txt-dim);font-size:12px;max-width:1000px;margin:0 auto}
+.hitinfo{padding:9px 0 5px;color:var(--txt-dim);font-size:12px}
+#hitinfo{position:sticky;top:0;z-index:2;background:var(--chat-bg);border-bottom:1px solid var(--side-bd);margin-bottom:6px}
+.hitnum{display:inline-block;min-width:18px;padding:0 5px;margin-right:5px;border-radius:9px;background:var(--accent);color:#fff;font-size:10.5px;line-height:15px;text-align:center;vertical-align:1px}
+.row.dim{opacity:.45}
 
 /* 灯箱 */
 #lb{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;z-index:80;flex-direction:column}
@@ -368,12 +371,14 @@ const S = {
   meId: null, meName: '',
   cur: null,             // 当前会话
   startIdx: 0,           // 已渲染起始下标
-  q: '', tab: 'chat',
+  q: '', qName: '', qMsg: '', tab: 'chat',   // q = 当前搜索框内容；qName/qMsg = 两个搜索范围各自记住的词
   theme: 'auto', showImg: true, sort: 'time',
   hits: [],              // 全文搜索结果
   lastQuery: '',         // 上一次搜索的词（同一个词不重复算）
   sx: null,              // 全文搜索索引：每会话一段小写正文长串 + 各消息起始偏移
   sxSrc: null, sxSort: null, sxMs: 0, hitCache: null,
+  hitShown: 0,           // 已渲染的命中条数（分批渲染用）
+  hitCounts: null,       // 本次搜索：会话 id -> 命中条数（侧栏显示）
   view: null,            // 「只看某个发言人」时的消息下标数组（null = 全部）
   filterName: null,      // 当前筛选的发言人
   win: 250,              // 每批渲染条数
@@ -666,25 +671,33 @@ function sortedSessions() {
 }
 function renderSidebar() {
   const q = S.q.trim().toLowerCase();
-  let html = '';
+  const inMsg = S.tab === 'msg';                 // 全文搜索模式
+  let html = '', 匹配数 = 0;
   if (S.tab === 'star') {
     html = '<div class="empty">还没有收藏。<br>在消息上点 ☆ 即可加入收藏（存在本机浏览器里）。</div>';
   } else {
-    const list = sortedSessions().filter(s => !q || s.name.toLowerCase().includes(q));
+    // 全文搜索时侧栏不再按「会话名」过滤（那时搜的是消息内容），改为列出全部会话并标出各自命中数
+    const all = sortedSessions();
+    const list = inMsg ? all : all.filter(s => !q || s.name.toLowerCase().includes(q));
+    匹配数 = list.length;
     if (!list.length) html = '<div class="empty">没有匹配的会话</div>';
     for (const s of list) {
-      html += '<div class="row' + (S.cur && S.cur.id === s.id ? ' on' : '') + '" data-id="' + esc(s.id) + '">' +
+      const cnt = inMsg ? (S.hitCounts ? (S.hitCounts.get(s.id) || 0) : 0) : -1;
+      html += '<div class="row' + (S.cur && S.cur.id === s.id ? ' on' : '') + (cnt === 0 ? ' dim' : '') + '" data-id="' + esc(s.id) + '">' +
         (s.kind === 'GROUP'
           ? ((S.avatars && S.avatars[s.name]) ? avatar(s.name, SIDE_AV) : groupTile(recentSenders(s, 4), SIDE_AV))
           : avatar(s.name, SIDE_AV)) +
-        '<div class="mid"><div class="n1"><div class="nm">' + esc(s.name) + '</div><div class="tm">' + fmtListTime(s.last) + '</div></div>' +
+        '<div class="mid"><div class="n1"><div class="nm">' + esc(s.name) + '</div>' +
+        '<div class="tm">' + (cnt > 0 ? '<span class="hitnum">' + cnt.toLocaleString() + '</span>' : '') + fmtListTime(s.last) + '</div></div>' +
         '<div class="n2">' + (s.kind === 'GROUP' ? '<span class="tag">群</span>' : '<span class="tag">私</span>') +
         esc(preview(s)).slice(0, 90) + ' · ' + s.n + '条</div></div></div>';
     }
   }
   $('list').innerHTML = html;
   const st = $('side-title');
-  st.textContent = S.sessions.length ? '共 ' + S.sessions.length + ' 个会话 / ' + S.sessions.reduce((a, s) => a + s.n, 0).toLocaleString() + ' 条消息' : '聊天记录';
+  st.textContent = !S.sessions.length ? '聊天记录'
+    : inMsg ? (S.hits.length ? ('命中 ' + S.hits.length.toLocaleString() + ' 条 · 涉及 ' + (S.hitCounts ? S.hitCounts.size : 0) + ' 个会话') : '没有命中')
+    : (q ? ('匹配 ' + 匹配数 + ' / 共 ' + S.sessions.length + ' 个会话') : ('共 ' + S.sessions.length + ' 个会话 / ' + S.sessions.reduce((a, s) => a + s.n, 0).toLocaleString() + ' 条消息'));
 }
 $('list').addEventListener('click', e => { const r = e.target.closest('.row'); if (r) openSession(r.dataset.id); });
 /* 侧栏两个控件各管一件事：标签 = 列表看什么（会话 / 收藏）；范围 = 搜索框搜什么（会话名 / 全部消息）。
@@ -695,19 +708,29 @@ function syncSideTabs() {
   [...document.querySelectorAll('#scope .seg')].forEach(x => x.classList.toggle('on', x.dataset.scope === (S.tab === 'msg' ? 'msg' : 'chat')));
   $('q').placeholder = S.tab === 'msg' ? '搜索全部消息…' : '搜索会话名…';
 }
+/* 搜索范围只有两种：会话名 / 全文。两个范围各自记住自己的词 ——
+   否则「全文」搜过的词切回「会话名」后会被当成会话名过滤条件，侧栏直接变空（实测踩过）。 */
+function scopeOf() { return S.tab === 'msg' ? 'msg' : 'chat'; }
+function switchTab(to) {
+  const from = scopeOf();
+  if (from === 'msg') S.qMsg = $('q').value; else S.qName = $('q').value;
+  S.tab = to;
+  const now = scopeOf();
+  if (now !== from) { S.q = now === 'msg' ? (S.qMsg || '') : (S.qName || ''); $('q').value = S.q; }
+  syncSideTabs();
+  if (to === 'msg') doSearch(S.q.trim(), true); else { renderSidebar(); renderMain(); }
+}
 $('tabs').addEventListener('click', e => {
   const t = e.target.closest('.tab'); if (!t) return;
-  S.tab = t.dataset.tab;
-  syncSideTabs();
-  if (S.tab === 'msg' && S.q.trim()) doSearch(S.q.trim(), true); else { renderSidebar(); renderMain(); }
+  switchTab(t.dataset.tab);
 });
 $('scope').addEventListener('click', e => {
   const g = e.target.closest('.seg'); if (!g) return;
   const to = g.dataset.scope === 'msg' ? 'msg' : 'chat';
-  if (to === S.tab) return;
-  S.tab = to;
-  syncSideTabs();
-  if (S.tab === 'msg') doSearch(S.q.trim(), true); else { renderSidebar(); renderMain(); }
+  // 点「全文」时如果当前已经是全文模式、但屏幕上显示的是某个会话（刚点过命中跳过来），
+  // 也要把结果列表重新画出来
+  if (to === S.tab) { if (to === 'msg' && !$('hitlist') && S.lastQuery) doSearch(S.lastQuery, true); return; }
+  switchTab(to);
 });
 $('q').addEventListener('input', () => {
   S.q = $('q').value;
@@ -726,7 +749,8 @@ function autoOpen() {
 function openSession(id) {
   const s = S.sessions.find(x => x.id === id); if (!s) return;
   if (typeof closeLB === 'function') closeLB();      // 换会话就关灯箱，否则会留着上一个会话的图片列表
-  S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.hits = []; S.hl = ''; S.tab = 'chat';
+  S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.hits = []; S.hl = '';
+  S.tab = 'chat'; S.q = S.qName || ''; $('q').value = S.q;   // 回到「会话名」范围（用的也是这个范围自己的词）
   S.view = null; S.filterName = null;                  // 换会话就清掉「只看某人」的筛选
   syncSideTabs();
   renderSidebar(); renderMain(); renderMsgs(false);
@@ -871,6 +895,12 @@ function scrollToIdx(i, flash) {
 /* 滚动到顶自动载入更早 */
 $('scroll').addEventListener('scroll', () => {
   const sc = $('scroll');
+  const 看结果 = S.tab === 'msg' && !!$('hitlist');   // 结果列表是否真的在屏幕上
+  if (看结果) {                                 // 全文搜索：滑到底继续加载命中，且不触发「载入更早」
+    $('jumpbar').classList.remove('on');
+    if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 400) hitMore();
+    return;
+  }
   $('jumpbar').classList.toggle('on', sc.scrollHeight - sc.scrollTop - sc.clientHeight > 400 && !!S.cur);
   if (sc.scrollTop < 40 && S.cur && S.startIdx > 0 && !window.__loading) {
     window.__loading = true; loadOlder(); setTimeout(() => window.__loading = false, 120);
@@ -928,8 +958,14 @@ function offToIdx(off, p) {         // 偏移 → 消息下标（二分）
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (off[mid] <= p) lo = mid; else hi = mid - 1; }
   return lo;
 }
-function findHits(q, cap) {
-  const key = cap + '|' + q;
+/* 收集全部命中并按「时间从新到旧」排序。
+   踩过的坑：原来是「够 400 条就 break」，而遍历顺序是「按会话（最近有消息的在前）」，
+   结果最常见的词永远只命中最近 3~4 个会话 —— 库里前一年多的消息一条都搜不到（实测「的」
+   只覆盖到 2023-10，而数据从 2022-06 开始）。现在不再按会话截断，改按时间排。 */
+const HIT_CAP = 80000;          // 安全阀：极端词（单字）也不至于把内存吃光
+const HIT_BATCH = 200;          // 每次渲染多少条（其余下滑继续加载）
+function findHits(q) {
+  const key = q;
   if (S.hitCache && S.hitCache.has(key)) return S.hitCache.get(key);
   const lq = q.toLowerCase(), out = [];
   for (const x of searchIndex()) {
@@ -941,16 +977,48 @@ function findHits(q, cap) {
         // 命中必须完整落在某一条消息里：跨「分隔符」的（上一条结尾 + 下一条开头凑出来的）丢掉。
         // 一条消息只记一次（和原来的逐条扫描一致），然后直接跳到下一条开头 —— 既正确又快。
         out.push({ s: x.s, i, m: x.s.msgs[i] });
-        if (out.length >= cap) break;
+        if (out.length >= HIT_CAP) break;
         p = x.str.indexOf(lq, end);
       } else {
         p = x.str.indexOf(lq, p + 1);
       }
     }
-    if (out.length >= cap) break;
+    if (out.length >= HIT_CAP) break;
   }
-  if (S.hitCache) { if (S.hitCache.size >= 40) S.hitCache.clear(); S.hitCache.set(key, out); }
+  out.sort((a, b) => b.m.ts - a.m.ts);          // 按时间从新到旧（不再按会话最新程度）
+  if (S.hitCache && out.length <= 5000) {       // 超大结果不进缓存（重算也才几十毫秒）
+    if (S.hitCache.size >= 12) S.hitCache.clear();
+    S.hitCache.set(key, out);
+  }
   return out;
+}
+/* 一条命中卡片 */
+function hitCard(h, q) {
+  return '<div class="hit" data-id="' + esc(h.s.id) + '" data-i="' + h.i + '">' +
+    '<div class="h-top"><b>' + esc(h.s.name) + '</b><span>' + esc(h.m.fromName) + '</span><span>' + fmtTime(h.m.ts) + '</span></div>' +
+    '<div class="h-body">' + hl(h.m.text.slice(0, 300), q) + '</div></div>';
+}
+/* 分批渲染命中（和消息/画廊一样：下滑继续加载） */
+function hitMore() {
+  const list = $('hitlist'); if (!list || window.__hitBusy) return;
+  const from = S.hitShown || 0, to = Math.min(S.hits.length, from + HIT_BATCH);
+  if (to <= from) return;
+  window.__hitBusy = true;
+  let html = '';
+  for (let k = from; k < to; k++) html += hitCard(S.hits[k], S.lastQuery);
+  list.insertAdjacentHTML('beforeend', html);
+  S.hitShown = to;
+  const more = $('hitmore');
+  if (more) more.innerHTML = S.hitShown < S.hits.length
+    ? '<div class="hitinfo" id="hitinfo2">已显示 ' + S.hitShown.toLocaleString() + ' / ' + S.hits.length.toLocaleString() + ' 条 · 继续下滑加载</div>' : '';
+  setTimeout(() => { window.__hitBusy = false; }, 80);
+}
+function hitRange(hits) {            // 命中覆盖的时间范围
+  if (!hits.length) return '';
+  let mn = Infinity, mx = -Infinity;
+  for (const h of hits) { if (h.m.ts < mn) mn = h.m.ts; if (h.m.ts > mx) mx = h.m.ts; }
+  const d = t => new Date(t).toISOString().slice(0, 10);
+  return d(mn) + ' ~ ' + d(mx);
 }
 function doSearch(q, force) {
   q = (q || '').trim();
@@ -962,20 +1030,22 @@ function doSearch(q, force) {
     $('hits').innerHTML = '<div class="hitinfo">输入关键词，搜索全部消息（可按分钟级时间、发言人筛选用右侧会话）</div>';
     renderSidebar(); return;
   }
-  const CAP = 400;
   const t0 = performance.now();
-  const hits = findHits(q, CAP);
-  S.hits = hits; S.lastQuery = q;
+  const hits = findHits(q);
+  S.hits = hits; S.lastQuery = q; S.hitShown = 0;
+  S.hitCounts = new Map();                      // 每个会话命中多少条（侧栏要显示）
+  for (const h of hits) S.hitCounts.set(h.s.id, (S.hitCounts.get(h.s.id) || 0) + 1);
   const ms = Math.round(performance.now() - t0);
-  let html = '<div class="hitinfo">找到 ' + hits.length + (hits.length >= CAP ? '+' : '') + ' 条（' + ms + 'ms）' +
-    (hits.length >= CAP ? '，只显示前 ' + CAP + ' 条，请补充关键词' : '') + '</div>';
-  for (const h of hits) {
-    html += '<div class="hit" data-id="' + esc(h.s.id) + '" data-i="' + h.i + '">' +
-      '<div class="h-top"><b>' + esc(h.s.name) + '</b><span>' + esc(h.m.fromName) + '</span><span>' + fmtTime(h.m.ts) + '</span></div>' +
-      '<div class="h-body">' + hl(h.m.text.slice(0, 300), q) + '</div></div>';
+  if (!hits.length) {
+    $('hits').innerHTML = '<div class="hitinfo">没有找到包含「' + esc(q) + '」的消息</div>';
+    renderSidebar(); return;
   }
-  if (!hits.length) html = '<div class="hitinfo">没有找到包含「' + esc(q) + '」的消息</div>';
-  $('hits').innerHTML = html;
+  const info = '找到 ' + hits.length.toLocaleString() + ' 条（' + ms + 'ms）' +
+    (hits.length >= HIT_CAP ? '，结果过多只保留前 ' + HIT_CAP.toLocaleString() + ' 条，请补充关键词' : '') +
+    ' · ' + hitRange(hits) + ' · 按时间从新到旧' + (hits.length > HIT_BATCH ? ' · 下滑继续加载' : '');
+  $('hits').innerHTML = '<div class="hitinfo" id="hitinfo">' + info + '</div><div id="hitlist"></div><div id="hitmore"></div>';
+  hitMore();
+  renderSidebar();                              // 侧栏：全部会话 + 各自命中数（不再按会话名过滤）
 }
 $('hits').addEventListener('click', e => {
   const h = e.target.closest('.hit'); if (!h) return;
@@ -983,8 +1053,11 @@ $('hits').addEventListener('click', e => {
   openSession(h.dataset.id);
   S.hl = q;
   renderMsgs(false);          // 目标可能本来就落在已渲染窗口内，必须重画一次高亮才生效
+  // 搜索状态保留：范围仍在「全文」（搜索框里的词仍然表示消息关键词），侧栏继续显示各会话命中数，
+  // 这样能直接点下一条；想看回结果列表，再点一次「全文」即可（不会再跳转会话）。
+  S.tab = 'msg'; S.q = S.qMsg || q; $('q').value = S.q; syncSideTabs(); renderSidebar();
   const meta = $('hd-meta');
-  if (meta) meta.textContent += '  ·  已高亮「' + q + '」';
+  if (meta) meta.textContent += '  ·  已高亮「' + q + '」，点「全文」可回到结果列表';
   scrollToIdx(+h.dataset.i, true);
 });
 
@@ -1528,8 +1601,15 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const g = $('gal'); if (g && g.classList.contains('on')) { closeGallery(); return; }   // 画廊开着就先关画廊
+    const lbOn = $('lb').classList.contains('on');
     closeLB();                                                                            // 灯箱开着则退回上一级（从画廊进来就回画廊）
+    const dlgOn = $('dlg').classList.contains('on');
     if (!$('gal') || !$('gal').classList.contains('on')) { $('dlg').classList.remove('on'); const pp = $('ppl'); if (pp) pp.remove(); }
+    // 上面都没开着、且有搜索词时：Esc 清空搜索（常见约定）
+    if (!lbOn && !dlgOn && S.q) {
+      $('q').value = ''; S.q = ''; clearTimeout(window.__qt);
+      if (S.tab === 'msg') doSearch('', true); else renderSidebar();
+    }
   }
   else if ($('lb').classList.contains('on') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
     e.preventDefault();
@@ -1633,7 +1713,7 @@ async function boot() {
 window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, doSearch, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
   openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf,
-  colorOf, currentAvatarName, avatar, avatarText, syncAvatarColor, refreshAvatars, doSearch, findHits, searchIndex, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
+  colorOf, currentAvatarName, avatar, avatarText, syncAvatarColor, refreshAvatars, doSearch, findHits, hitMore, hitRange, searchIndex, HIT_BATCH, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
 boot();
 </script>
 </body>

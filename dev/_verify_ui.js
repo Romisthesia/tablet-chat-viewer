@@ -682,35 +682,62 @@ async function inkOffset(page, sel) {
 
 
   {  // 本节变量都收在这个块里，避免和上面的断言重名
-  // ---------- 10. 全文搜索：正确性 / 性能 / 布局 ----------
+  // ---------- 10. 全文搜索：正确性 / 覆盖范围 / 性能 / 分批渲染 / 布局 ----------
   const savedSid = await page.evaluate(() => window.__viewer.S.cur ? window.__viewer.S.cur.id : null);
 
-  // 10a. 索引搜索的结果必须与「逐条 toLowerCase + indexOf」的朴素实现逐条一致（含顺序）
+  // 10a. 索引结果 vs「逐条 toLowerCase + indexOf」的朴素实现：集合必须完全一致，且结果按时间从新到旧
   const cmp = await page.evaluate(() => {
     const V = window.__viewer;
     const naive = q => {
       const lq = q.toLowerCase(), out = [];
-      for (const s of V.sortedSessions()) for (let i = 0; i < s.msgs.length; i++) {
+      for (const s of V.S.sessions) for (let i = 0; i < s.msgs.length; i++) {
         const m = s.msgs[i]; if (!m.text) continue;
-        if (m.text.toLowerCase().indexOf(lq) >= 0) { out.push(s.id + '#' + i); if (out.length >= 400) return out; }
+        if (m.text.toLowerCase().indexOf(lq) >= 0) out.push(s.id + '#' + i);
       }
-      return out;
+      return out.sort();
     };
     const qs = [];
     for (const s of V.S.sessions.slice(0, 3)) { const m = s.msgs.find(x => x.text && x.text.length > 6); if (m) qs.push(m.text.slice(1, 4)); }
     qs.push('的', 'zzz这个词不存在zzz', 'A');
     const res = [];
     for (const q of qs) {
-      const fast = V.findHits(q, 400).map(h => h.s.id + '#' + h.i);
+      const hits = V.findHits(q);
+      const fast = hits.map(h => h.s.id + '#' + h.i).sort();
       const slow = naive(q);
-      res.push({ q: q.slice(0, 8), 索引: fast.length, 朴素: slow.length, 一致: fast.length === slow.length && fast.every((x, k) => x === slow[k]) });
+      res.push({ q: q.slice(0, 8), 索引: fast.length, 朴素: slow.length,
+                 一致: fast.length === slow.length && fast.every((x, k) => x === slow[k]),
+                 时间倒序: hits.every((h, k) => k === 0 || hits[k - 1].m.ts >= h.m.ts) });
     }
     return res;
   });
-  chk('索引搜索的结果与朴素扫描逐条一致（含顺序）',
-    cmp.every(x => x.一致), JSON.stringify(cmp.filter(x => !x.一致).length ? cmp.filter(x => !x.一致) : cmp.map(x => x.q + ':' + x.索引 + '条')));
+  chk('索引搜索的结果与朴素扫描集合完全一致，且按时间从新到旧',
+    cmp.every(x => x.一致 && x.时间倒序), JSON.stringify(cmp));
 
-  // 10b. 性能：冷门词（要好话说要扫全库）比朴素实现快多少
+  // 10b. 覆盖范围：常见词必须能搜到「数据最老那一段」（原来只截前 400 条，永远只命中最近几个会话）
+  const cover = await page.evaluate(() => {
+    const V = window.__viewer, S = V.S;
+    let t0 = Infinity, t1 = -Infinity, n = 0;
+    for (const s of S.sessions) for (const m of s.msgs) { n++; if (m.ts < t0) t0 = m.ts; if (m.ts > t1) t1 = m.ts; }
+    const d = t => new Date(t).toISOString().slice(0, 10);
+    const 老界限 = t0 + (t1 - t0) * 0.2;
+    const out = { 消息数: n, 全体范围: d(t0) + ' ~ ' + d(t1), 逐词: [] };
+    for (const q of ['的', '我']) {
+      S.hitCache = new Map();
+      const hits = V.findHits(q);
+      let mn = Infinity, mx = -Infinity, 老段 = 0;
+      for (const h of hits) { if (h.m.ts < mn) mn = h.m.ts; if (h.m.ts > mx) mx = h.m.ts; if (h.m.ts <= 老界限) 老段++; }
+      out.逐词.push({ 词: q, 条数: hits.length, 范围: d(mn) + ' ~ ' + d(mx),
+                      涉及会话: new Set(hits.map(h => h.s.id)).size, 老段条数: 老段 });
+    }
+    return out;
+  });
+  if (cover.消息数 > 20000) {
+    chk('常见词能搜到全时间范围（含数据最老那一段），不再只命中最近几个会话',
+      cover.逐词.every(x => x.条数 > 400 && x.老段条数 > 0 && x.涉及会话 >= 20),
+      JSON.stringify(cover.全体范围) + ' ' + JSON.stringify(cover.逐词));
+  } else console.log('（样例数据 ' + cover.消息数 + ' 条，覆盖范围断言只在真实数据上跑）');
+
+  // 10c. 性能：冷门词不再逐条 toLowerCase
   const perf = await page.evaluate(() => {
     const V = window.__viewer, S = V.S;
     const total = S.sessions.reduce((a, s) => a + s.msgs.length, 0);
@@ -719,39 +746,66 @@ async function inkOffset(page, sel) {
     for (let k = 0; k < 3; k++) for (const s of V.sortedSessions()) for (let i = 0; i < s.msgs.length; i++) { const m = s.msgs[i]; if (m.text) m.text.toLowerCase().indexOf(q); }
     const slow = +((performance.now() - t) / 3).toFixed(2);
     t = performance.now();
-    for (let k = 0; k < 3; k++) { S.hitCache = new Map(); V.findHits(q, 400); }
+    for (let k = 0; k < 3; k++) { S.hitCache = new Map(); V.findHits(q); }
     const fast = +((performance.now() - t) / 3).toFixed(2);
     const sxBefore = S.sx;
-    V.findHits('随便另一个词', 400);
+    V.findHits('随便另一个词');
     return { 消息数: total, 朴素毫秒: slow, 索引毫秒: fast, 倍数: slow && fast ? +(slow / fast).toFixed(1) : null,
              索引只建一次: sxBefore === S.sx, 建索引毫秒: S.sxMs, 索引字符串字节: S.sx.reduce((a, x) => a + x.str.length, 0) };
   });
   if (perf.消息数 > 20000) {
     chk('冷门词搜索比原来快 3 倍以上（索引命中，不再逐条 toLowerCase）',
-      perf.索引毫秒 * 3 <= perf.朴素毫秒 && perf.索引只建一次,
-      JSON.stringify(perf));
+      perf.索引毫秒 * 3 <= perf.朴素毫秒 && perf.索引只建一次, JSON.stringify(perf));
   } else console.log('（样例数据只有 ' + perf.消息数 + ' 条，性能断言只在真实数据上跑；倍数 ' + perf.倍数 + '）');
 
-  // 10c. 端到端：连敲一个字不再卡（含拼 HTML + 塞进 DOM），同词复用缓存
-  const e2e = await page.evaluate(async () => {
+  // 10d. 分批渲染：首批 HIT_BATCH 条，滑到底继续加载；侧栏不再按会话名过滤、标出各会话命中数
+  const batch = await page.evaluate(async () => {
     const V = window.__viewer, S = V.S;
-    S.tab = 'chat'; V.syncSideTabs();
-    document.querySelector('#scope .seg[data-scope="msg"]').click();
-    await new Promise(r => setTimeout(r, 300));
-    // 用数据里真实存在的一段正文逐字加长，模拟「连敲」；否则 0 命中的耗时没有意义
-    const src = (S.sessions.map(x => x.msgs.find(y => y.text && y.text.length > 6)).find(Boolean) || { text: '任意文字' }).text;
-    const typed = [src.slice(0, 1), src.slice(0, 2), src.slice(0, 3), src.slice(0, 4)];
-    const t = performance.now();
-    for (const q of typed) { document.getElementById('q').value = q; V.doSearch(q); await new Promise(r => setTimeout(r, 0)); }
-    const four = performance.now() - t;
-    S.hitCache = new Map();
-    V.doSearch(typed[3], true);
-    const t2 = performance.now(); V.doSearch(typed[3], true); const again = performance.now() - t2;
-    return { 敲的词: typed.map(x => x.slice(0, 4)), 连敲4次毫秒: +four.toFixed(1), 每次: +(four / 4).toFixed(1), 同词复用毫秒: +again.toFixed(2), 命中卡: document.querySelectorAll('#hits .hit').length, 命中数: S.hits.length };
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const $ = id => document.getElementById(id);
+    const sel = s => document.querySelector(s);
+    $('q').value = ''; $('q').dispatchEvent(new Event('input')); await sleep(250);
+    sel('#scope .seg[data-scope="msg"]').click(); await sleep(300);
+    $('q').value = '的'; $('q').dispatchEvent(new Event('input')); await sleep(900);
+    const out = { 总数: S.hits.length, 首批: document.querySelectorAll('#hits .hit').length, 期望首批: Math.min(V.HIT_BATCH, S.hits.length) };
+    if (S.hits.length > V.HIT_BATCH) {
+      $('scroll').scrollTop = 0; await sleep(250);          // 先归零：赋同一个 scrollTop 不会再触发 scroll 事件
+      $('scroll').scrollTop = $('scroll').scrollHeight;
+      $('scroll').dispatchEvent(new Event('scroll'));
+      await sleep(800);
+      out.滑到底后 = document.querySelectorAll('#hits .hit').length;
+      out.加载提示 = (document.getElementById('hitinfo2') || {}).textContent;
+    }
+    out.摘要 = (document.getElementById('hitinfo') || {}).textContent;
+    // 侧栏（全文模式下应该是全部会话 + 命中数，而不是被「会话名」过滤）
+    out.侧栏行数 = document.querySelectorAll('#list .row').length;
+    out.全部会话数 = S.sessions.length;
+    out.有命中徽标 = document.querySelectorAll('#list .row .hitnum').length;
+    out.变淡的会话 = document.querySelectorAll('#list .row.dim').length;
+    out.标题 = document.getElementById('side-title').textContent;
+    // Esc 清空搜索（先把别的层关掉：Esc 的优先级是 画廊 > 灯箱 > 弹窗 > 搜索）
+    const galEl = document.getElementById('gal');
+    out.Esc前别的层 = { 画廊: !!(galEl && galEl.classList.contains('on')), 灯箱: document.getElementById('lb').classList.contains('on'), 弹窗: document.getElementById('dlg').classList.contains('on') };
+    V.closeGallery(); V.closeLB(); document.getElementById('dlg').classList.remove('on');
+    await sleep(150);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(400);
+    out.Esc后 = { 搜索框: $('q').value, S_q: S.q, 主区提示: (sel('#hits .hitinfo') || {}).textContent.slice(0, 14), tab: S.tab };
+    return out;
   });
-  console.log('  端到端搜索：' + JSON.stringify(e2e));
+  chk('命中结果分批渲染（首批 ' + 'HIT_BATCH' + ' 条），摘要显示真总数与时间跨度',
+    batch.总数 > 0 && batch.首批 === batch.期望首批 && /找到 [\d,]+ 条/.test(batch.摘要) && /\d{4}-\d{2}-\d{2} ~ \d{4}-\d{2}-\d{2}/.test(batch.摘要),
+    JSON.stringify({ 总数: batch.总数, 首批: batch.首批, 摘要: batch.摘要 }));
+  if (batch.总数 > 200) chk('下滑继续加载更多命中', batch.滑到底后 > batch.首批, batch.首批 + ' → ' + batch.滑到底后 + ' ｜ ' + (batch.加载提示 || ''));
+  else console.log('（本次命中 ' + batch.总数 + ' 条，未超过一批，跳过「下滑加载更多」断言）');
+  chk('全文模式下侧栏不再按会话名过滤，而是列出全部会话并标出各自命中数',
+    batch.侧栏行数 === batch.全部会话数 && batch.有命中徽标 > 0
+    && (batch.有命中徽标 === batch.侧栏行数 || batch.变淡的会话 === batch.侧栏行数 - batch.有命中徽标) && /命中/.test(batch.标题),
+    JSON.stringify({ 侧栏行: batch.侧栏行数, 全部会话: batch.全部会话数, 徽标: batch.有命中徽标, 零命中变淡: batch.变淡的会话, 标题: batch.标题 }));
+  chk('Esc 能清空搜索（回到未搜索状态）',
+    batch.Esc后.搜索框 === '' && batch.Esc后.S_q === '' && /输入关键词/.test(batch.Esc后.主区提示), JSON.stringify(batch.Esc后));
 
-  // 10d. 布局：搜索范围开关贴在搜索框上；列表标签只剩 会话/收藏
+  // 10e. 布局：搜索范围开关贴在搜索框上；列表标签只剩 会话/收藏
   const layout = await page.evaluate(() => {
     const tabs = [...document.querySelectorAll('#tabs .tab')].map(x => x.dataset.tab);
     const segs = [...document.querySelectorAll('#scope .seg')].map(x => x.dataset.scope);
@@ -767,8 +821,10 @@ async function inkOffset(page, sel) {
 
   const scopeUi = await page.evaluate(async () => {
     const V = window.__viewer;
-    document.getElementById('q').value = '';
-    V.doSearch('', true);
+    document.getElementById('q').value = ''; V.S.q = ''; V.S.qName = ''; V.S.qMsg = ''; V.S.lastQuery = '';
+    document.querySelector('#scope .seg[data-scope="chat"]').click();
+    await new Promise(r => setTimeout(r, 250));
+    document.querySelector('#scope .seg[data-scope="msg"]').click();
     await new Promise(r => setTimeout(r, 250));
     const out = { 空词提示: (document.querySelector('#hits .hitinfo') || {}).textContent || '', 全文高亮: document.querySelector('#scope .seg[data-scope="msg"]').classList.contains('on') };
     document.querySelector('#tabs .tab[data-tab="star"]').click();
@@ -785,30 +841,82 @@ async function inkOffset(page, sel) {
     && scopeUi.回会话.tab === 'chat' && scopeUi.回会话.会话高亮 && /会话名/.test(scopeUi.回会话.占位符),
     JSON.stringify(scopeUi));
 
-  // 10e. 真实搜一次并点命中：应跳到该会话、高亮、能滚动到那一条
+  // 10f. 点命中：跳到那条并高亮；搜索状态保留（范围仍在全文、侧栏仍显示命中数），可再点下一条
   const jump = await page.evaluate(async () => {
     const V = window.__viewer, S = V.S;
-    const s = V.sortedSessions().find(x => x.msgs.some(m => m.text && m.text.length > 4));
-    const m = s.msgs.find(x => x.text && x.text.length > 4);
-    const q = m.text.slice(0, 3);
-    document.querySelector('#scope .seg[data-scope="msg"]').click();
-    document.getElementById('q').value = q;
-    V.doSearch(q, true);
-    await new Promise(r => setTimeout(r, 400));
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const $ = id => document.getElementById(id);
+    $('q').value = ''; $('q').dispatchEvent(new Event('input')); await sleep(250);
+    document.querySelector('#scope .seg[data-scope="msg"]').click(); await sleep(300);
+    $('q').value = '的'; $('q').dispatchEvent(new Event('input')); await sleep(800);
+    const out = { 命中卡: document.querySelectorAll('#hits .hit').length };
+    out.诊断 = { tab: S.tab, 框: $('q').value, lastQuery: S.lastQuery, hits内存: S.hits.length, hitsHTML: $('hits').innerHTML.length, qMsg: S.qMsg, qName: S.qName };
     const first = document.querySelector('#hits .hit');
-    const out = { 词: q, 命中卡: document.querySelectorAll('#hits .hit').length, 有卡片: !!first };
     if (first) {
+      const 目标会话 = first.querySelector('b').textContent, 目标下标 = +first.dataset.i;
       first.click();
-      await new Promise(r => setTimeout(r, 900));
-      const el = document.getElementById('m-' + first.dataset.i);
-      out.跳转后 = { 当前会话: S.cur.id === first.dataset.id, 高亮词: S.hl, 目标在DOM: !!el, 有mark: el ? !!el.querySelector('mark') : false, 闪烁类: el ? el.classList.contains('flash') : false };
+      await sleep(900);
+      const el = document.getElementById('m-' + 目标下标);
+      out.跳转后 = { 期望会话: 目标会话, 当前会话: S.cur && S.cur.name, 当前会话对: S.cur && S.cur.name === 目标会话,
+                     定位到目标: !!el, 有mark: el ? !!el.querySelector('mark') : false, 闪烁: el ? el.classList.contains('flash') : false,
+                     tab: S.tab, 范围高亮: (document.querySelector('#scope .seg.on') || {}).dataset.scope,
+                     侧栏命中徽标: document.querySelectorAll('#list .row .hitnum').length,
+                     结果列表已让位: !document.getElementById('hitlist') };
+      // 再点一次「全文」应回到结果列表（而不是跳会话）
+      document.querySelector('#scope .seg[data-scope="msg"]').click();
+      await sleep(700);
+      out.回结果 = { 结果列表回来了: !!document.getElementById('hitlist'), 卡片: document.querySelectorAll('#hits .hit').length, 仍是同一会话: S.cur && S.cur.name === 目标会话 };
     }
-    document.getElementById('q').value = '';
     return out;
   });
-  chk('搜到的第一条点进去：跳到对应会话并高亮+定位到那条消息',
-    jump.命中卡 > 0 && jump.跳转后 && jump.跳转后.当前会话 && jump.跳转后.目标在DOM && jump.跳转后.有mark,
-    JSON.stringify(jump));
+  console.log('  点命中诊断：' + JSON.stringify(jump.诊断));
+  chk('点命中：跳到对应会话并高亮定位，搜索状态保留（范围仍在全文、侧栏仍有命中数）',
+    jump.命中卡 > 0 && jump.跳转后 && jump.跳转后.当前会话对 && jump.跳转后.定位到目标 && jump.跳转后.有mark
+    && jump.跳转后.tab === 'msg' && jump.跳转后.范围高亮 === 'msg' && jump.跳转后.侧栏命中徽标 > 0,
+    JSON.stringify(jump.跳转后));
+  chk('再点「全文」回到结果列表（不会又跳一次会话）',
+    jump.回结果 && jump.回结果.结果列表回来了 && jump.回结果.卡片 > 0 && jump.回结果.仍是同一会话,
+    JSON.stringify(jump.回结果));
+
+  // 10g. 两个搜索范围各自记住自己的词，互不串（否则「全文」搜过的词切回「会话名」会把侧栏清空）
+  const iso = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const $ = id => document.getElementById(id);
+    const rows = () => document.querySelectorAll('#list .row').length;
+    const reset = async () => {                       // 清干净，避免受上一节影响
+      $('q').value = ''; S.qName = ''; S.qMsg = ''; S.q = '';
+      document.querySelector('#scope .seg[data-scope="chat"]').click(); await sleep(200);
+      S.q = ''; $('q').value = ''; V.renderSidebar(); await sleep(150);
+      V.closeGallery(); V.closeLB(); $('dlg').classList.remove('on');
+    };
+    const out = { 期望会话名匹配: S.sessions.filter(x => x.name.toLowerCase().includes('陈')).length };
+    await reset();
+    // ① 会话名范围：过滤生效
+    $('q').value = '陈'; $('q').dispatchEvent(new Event('input')); await sleep(450);
+    out.会话名过滤 = { 行数: rows(), 全部: S.sessions.length };
+    // ② 切到全文：框里应该换成「全文」自己的词（空），侧栏应是全部会话
+    document.querySelector('#scope .seg[data-scope="msg"]').click(); await sleep(450);
+    out.切全文 = { 框: $('q').value, 行数: rows(), 全部: S.sessions.length, 提示: ($('hits .hitinfo') || document.querySelector('#hits .hitinfo') || {}).textContent.slice(0, 12) };
+    // ③ 全文里搜一个词
+    $('q').value = '的'; $('q').dispatchEvent(new Event('input')); await sleep(700);
+    out.全文搜词 = { 框: $('q').value, 命中: S.hits.length, 行数: rows(), 全部: S.sessions.length };
+    // ④ 切回会话名：框里应换回「会话名」的词（陈），且侧栏绝不能被消息关键词清空
+    document.querySelector('#scope .seg[data-scope="chat"]').click(); await sleep(500);
+    out.切回会话名 = { 框: $('q').value, 行数: rows(), 空提示: /没有匹配的会话/.test(document.getElementById('list').textContent) };
+    // ⑤ 再切回全文：词和结果都还在
+    document.querySelector('#scope .seg[data-scope="msg"]').click(); await sleep(600);
+    out.再切全文 = { 框: $('q').value, 卡片: document.querySelectorAll('#hits .hit').length };
+    await reset();
+    return out;
+  });
+  chk('两个搜索范围各自记词、互不串（切回「会话名」不会因消息关键词把侧栏清空）',
+    iso.期望会话名匹配 > 0 && iso.会话名过滤.行数 === iso.期望会话名匹配 && iso.会话名过滤.全部 > iso.期望会话名匹配
+    && iso.切全文.框 === '' && iso.切全文.行数 === iso.切全文.全部
+    && iso.全文搜词.命中 > 0 && iso.全文搜词.框 === '的'
+    && iso.切回会话名.框 === '陈' && iso.切回会话名.行数 === iso.期望会话名匹配 && !iso.切回会话名.空提示
+    && iso.再切全文.框 === '的' && iso.再切全文.卡片 > 0,
+    JSON.stringify(iso));
 
   // ---------- 11. 会话内：按发言人筛选 ----------
   const flt = await page.evaluate(async () => {
@@ -1034,7 +1142,8 @@ async function inkOffset(page, sel) {
     V.openSession(sess.id);
     await sleep(500);
 
-    const out = { 会话: sess.name, 选中: who, 自动配色: V.colorOf(who) };
+    const out = { 会话: sess.name, 选中: who, 自动配色: V.colorOf(who),
+                };
 
     // ① 圆形：聊天/侧栏/设置预览 = 圆；拼图外框仍是圆角方形、拼图内头像 = 圆
     out.圆形 = {
@@ -1080,6 +1189,7 @@ async function inkOffset(page, sel) {
     await sleep(300);
     return out;
   });
+  console.log('  头像节诊断：' + JSON.stringify(av.诊断));
   chk('个人头像全部改成圆形（聊天、侧栏私聊、设置预览）',
     av.圆形.聊天 === '50%' && av.圆形.侧栏私聊 === '50%' && av.圆形.设置预览 === '50%', JSON.stringify(av.圆形));
   chk('群聊拼图：外框仍是圆角正方形，里面的用户头像变成圆',
