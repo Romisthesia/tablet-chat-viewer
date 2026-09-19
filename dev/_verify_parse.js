@@ -80,15 +80,20 @@ const chk = (n, c, d) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (d !== unde
     chk('私聊里左右两侧都有气泡', sp.me > 0 && sp.other > 0, '我 ' + sp.me + ' / 对方 ' + sp.other);
   }
 
-  // ---- 全文搜索 ----
-  const s = await page.evaluate(() => {
-    const q = '我';
+  // ---- 搜索页 ----
+  const s = await page.evaluate(async () => {
+    const V = window.__viewer, sleep = ms => new Promise(r => setTimeout(r, ms));
+    V.openSearch(); await sleep(200);
     const t0 = performance.now();
-    window.__viewer.doSearch(q);
-    return { ms: Math.round(performance.now() - t0), hits: document.querySelectorAll('#hits .hit').length, info: (document.querySelector('.hitinfo') || {}).textContent };
+    const el = document.getElementById('q'); el.value = '我'; el.dispatchEvent(new Event('input'));
+    await sleep(600);
+    const out = { ms: Math.round(performance.now() - t0), hits: document.querySelectorAll('#sp-hits .hit').length,
+                  info: (document.getElementById('sp-hithead') || {}).textContent || '' };
+    V.closeSearch();
+    return out;
   });
   console.log('搜索：' + JSON.stringify(s));
-  chk('全文搜索有结果且够快', s.hits > 0 && s.ms < 3000, s.hits + ' 条 / ' + s.ms + 'ms');
+  chk('搜索页有结果且够快', s.hits > 0 && s.ms < 3000, s.hits + ' 条 / ' + s.ms + 'ms');
 
   // ---- 缓存（应用会在导入完成后异步写入，这里轮询等它） ----
   const cached = await page.evaluate(async () => {
