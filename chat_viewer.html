@@ -61,7 +61,7 @@ button,.iconbtn,.tab,.seg,.row,.hit,.ppl-row,.gal-cell,.imgwrap,
 #side-top{display:flex;align-items:center;gap:7px;padding:10px}
 #side-top .title{font-weight:600;font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .iconbtn{width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;font-size:15px}
-#searchwrap{padding:0 13px 10px;display:flex;gap:7px;align-items:center}
+#searchwrap{padding:0 13px 10px}
 #q{flex:1;min-width:0}
 #scope{display:flex;flex:0 0 auto;background:var(--card);border-radius:7px;padding:2px;gap:2px}
 #scope .seg{font-size:12.5px;padding:4px 9px;border-radius:5px;color:var(--txt-dim);cursor:pointer;white-space:nowrap;user-select:none}
@@ -142,7 +142,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px}
 .hit .h-body{font-size:13px;line-height:1.6;word-break:break-word;max-height:60px;overflow:hidden}
 /* ---------- 搜索页（独立整页，按微信逻辑） ---------- */
 #searchwrap{padding:0 13px 10px}
-#btn-search{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:7px;background:var(--card);color:var(--txt-dim);font-size:13.5px;cursor:pointer;user-select:none}
+#btn-search{display:flex;align-items:center;gap:7px;width:100%;padding:8px 11px;border-radius:7px;background:var(--card);color:var(--txt-dim);font-size:13.5px;cursor:pointer;user-select:none;box-sizing:border-box}
 #btn-search:hover{color:var(--txt)}
 .sp-ico{display:block;flex:none;opacity:.75}
 svg.sp-ico{vertical-align:middle}
@@ -785,7 +785,7 @@ function autoOpen() {
 function openSession(id) {
   const s = S.sessions.find(x => x.id === id); if (!s) return;
   if (typeof closeLB === 'function') closeLB();      // 换会话就关灯箱，否则会留着上一个会话的图片列表
-  S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.hits = []; S.hl = '';
+  S.cur = s; S.startIdx = Math.max(0, s.n - S.win); S.endIdx = s.n; S.hits = []; S.hl = '';
   S.tab = 'chat'; S.view = null; S.filterName = null;  // 换会话就清掉「只看某人」的筛选
   syncSideTabs();
   renderSidebar(); renderMain(); renderMsgs(false);
@@ -820,7 +820,7 @@ function renderMain() {
   const uf = $('btn-unfilter'); if (uf) uf.onclick = () => filterBySender(null);
   $('btn-jump').onclick = jumpDate;
   $('btn-exp1').onclick = () => exportSessionHTML(s);
-  $('btn-top').onclick = () => { const el = $('scroll'); el.scrollTop = el.scrollHeight; };
+  $('btn-top').onclick = () => scrollToIdx(viewAt(viewLen() - 1), false);
 }
 /* 「只看某个发言人」：S.view = 本会话内命中的消息下标数组（null 表示全部）。
    渲染、翻页、灯箱、画廊统一走 viewLen/viewAt，保证各处一致。 */
@@ -831,7 +831,7 @@ function filterBySender(nm) {
   S.filterName = nm || null;
   if (!nm) S.view = null;
   else { const v = []; for (let i = 0; i < s.n; i++) if ((s.msgs[i].fromName || '') === nm) v.push(i); S.view = v; }
-  S.startIdx = Math.max(0, viewLen() - S.win);
+  S.startIdx = Math.max(0, viewLen() - S.win); S.endIdx = viewLen();
   renderMain(); renderMsgs(false);
   requestAnimationFrame(() => { const el = $('scroll'); el.scrollTop = el.scrollHeight; });
 }
@@ -888,12 +888,17 @@ function renderMsgs(preserve) {
   const q = S.hl || '';
   let html = '', lastTs = 0;
   const total = viewLen();
-  for (let k = S.startIdx; k < total; k++) {
+  /* 只渲染 [startIdx, endIdx) 这一段（endIdx 缺省=末尾）。
+     不能「一直画到末尾」：搜索结果覆盖全时段后，跳到很久以前的一条会把
+     它之后的全部消息一次性画出来（3 万条的会话 = 3 万个元素）→ 卡死。 */
+  const end = Math.min(total, (S.endIdx == null) ? total : S.endIdx);
+  for (let k = S.startIdx; k < end; k++) {
     const i = viewAt(k), m = s.msgs[i];
     if (needMark(lastTs, m.ts)) html += '<div class="sys"><span>' + fmtMark(m.ts) + '</span></div>';
     html += msgHTML(m, i, q);
     lastTs = m.ts;
   }
+  if (end < total) html += '<div id="morebelow" style="text-align:center;font-size:11.5px;color:var(--txt-dim);padding:10px 0">↓ 后面还有 ' + (total - end).toLocaleString() + ' 条 · 继续下滑加载</div>';
   msgs.innerHTML = html;
   if (S.startIdx > 0) {
     $('loadmore').innerHTML =
@@ -912,12 +917,26 @@ function loadOlder() {
   S.startIdx = Math.max(0, S.startIdx - S.win);
   renderMsgs(true);
 }
+function loadNewer() {
+  const total = viewLen();
+  const end = (S.endIdx == null) ? total : S.endIdx;
+  if (end >= total) return;
+  S.endIdx = Math.min(total, end + S.win);
+  renderMsgs(false);
+}
 function scrollToIdx(i, flash) {
   const s = S.cur;
   // 筛选状态下，下标要先映射回「视图内位置」；不在筛选结果里就自动取消筛选
   let pos = S.view ? S.view.indexOf(i) : i;
   if (S.view && pos < 0) { S.view = null; S.filterName = null; renderMain(); pos = i; }
-  if (pos < S.startIdx || pos >= viewLen()) { S.startIdx = Math.max(0, pos - 30); renderMsgs(false); }
+  const total = viewLen();
+  const end = (S.endIdx == null) ? total : S.endIdx;
+  if (pos < S.startIdx || pos >= end) {
+    // 整窗口挪到目标附近：最多渲染 S.win 条，绝不「从目标一路画到末尾」
+    S.startIdx = Math.max(0, Math.min(pos - 30, Math.max(0, total - S.win)));
+    S.endIdx = Math.min(total, S.startIdx + S.win);
+    renderMsgs(false);
+  }
   const doScroll = () => {
     const el = $('m-' + i); if (!el) return;
     el.scrollIntoView({ block: 'center' });
@@ -934,8 +953,11 @@ $('scroll').addEventListener('scroll', () => {
   if (sc.scrollTop < 40 && S.cur && S.startIdx > 0 && !window.__loading) {
     window.__loading = true; loadOlder(); setTimeout(() => window.__loading = false, 120);
   }
+  if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 300 && S.cur && S.endIdx != null && S.endIdx < viewLen() && !window.__loading) {
+    window.__loading = true; loadNewer(); setTimeout(() => window.__loading = false, 120);
+  }
 });
-$('btn-new').onclick = () => { const sc = $('scroll'); sc.scrollTop = sc.scrollHeight; };
+$('btn-new').onclick = () => scrollToIdx(viewAt(viewLen() - 1), false);
 /* 点图放大 */
 $('msgs').addEventListener('click', e => {
   const w = e.target.closest('.imgwrap'); if (!w) return;
@@ -1853,10 +1875,10 @@ async function boot() {
   }
 }
 /* 暴露内部接口（自动化验证用） */
-window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, parseRawText, normMsg,
+window.__viewer = { S, boot, ingestFiles, buildSessions, computeMe, serialize, renderSidebar, openSession, scrollToIdx, parseRawText, normMsg,
   setTheme, applyTheme, resolvedTheme, applyLook, contrastText, toHex, fillAvatarSelect,
   openLB, lbStep, closeLB, sessionImages, halfSlot, fmtMark, needMark, recentSenders, groupTile, initialOf,
-  colorOf, currentAvatarName, avatar, avatarText, syncAvatarColor, refreshAvatars, findHits, hitMore, searchIndex, HIT_FIRST, HIT_BATCH, HIT_RENDER_MAX, openSearch, closeSearch, renderSearch, setCat, setDate, dateWindow, dateLabel, rememberSearch, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
+  colorOf, currentAvatarName, avatar, avatarText, syncAvatarColor, refreshAvatars, findHits, hitMore, loadNewer, searchIndex, HIT_FIRST, HIT_BATCH, HIT_RENDER_MAX, openSearch, closeSearch, renderSearch, setCat, setDate, dateWindow, dateLabel, rememberSearch, filterBySender, togglePpl, openGallery, closeGallery, syncSideTabs, viewLen, sortedSessions };
 boot();
 </script>
 </body>

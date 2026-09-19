@@ -769,6 +769,10 @@ async function inkOffset(page, sel) {
     // 从干净状态开始
     $('sp').classList.remove('on');
     o.入口不在侧栏里= !!document.getElementById('btn-search') && !document.querySelector('#searchwrap #q');
+    const bw = document.getElementById('btn-search').getBoundingClientRect();
+    const sw = document.getElementById('side').getBoundingClientRect();
+    o.入口宽度 = { 按钮: Math.round(bw.width), 侧栏: Math.round(sw.width),
+                   内边距后应占满: Math.abs(bw.width - (sw.width - 27)) <= 2 };   // 侧栏有 1px 右边框
     $('btn-search').click(); await sleep(250);
     o.打开 = $('sp').classList.contains('on');
     o.空词最近搜索 = ($('sp-recent').textContent || '').trim();
@@ -840,6 +844,8 @@ async function inkOffset(page, sel) {
     V.closeSearch();
     return out;
   });
+  chk('侧栏的搜索入口随侧栏宽度自适应（闲置时也是整条，不是按文字撑宽）',
+    sp.入口宽度.内边距后应占满, JSON.stringify(sp.入口宽度));
   chk('搜索页的图标一律用内联 SVG（不用字符/emoji，深色下才不糊）', icons.入口是SVG && icons.输入框是SVG && icons.最近项是SVG, JSON.stringify(icons));
   chk('空关键词时隐藏日期筛选（没词时它没意义）', icons.空词藏筛选, JSON.stringify(icons));
   chk('空词时展示「最近搜索」引导', /输入关键词|最近搜索/.test(sp.空词最近搜索) && /会话、群聊、聊天记录/.test(sp.占位符), sp.空词最近搜索.slice(0, 24));
@@ -881,6 +887,47 @@ async function inkOffset(page, sel) {
     return { 次数: n, 平均ms: +(total / n).toFixed(1), 最差ms: +worst.toFixed(1), 卡片: document.querySelectorAll('#sp-hits .hit').length };
   });
   chk('连打 10 个字的平均回帧 < 260ms（含 130ms 防抖等待）', budget.平均ms < 260, JSON.stringify(budget));
+
+  // 10e2. 深跳（点很久以前的搜索结果）必须只渲染一屏 —— 原来会「从目标一路画到末尾」，几万条直接卡死
+  const deep = await page.evaluate(async () => {
+    const V = window.__viewer, S = V.S;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const sess = { id: 'zz-synthetic-big', name: '压测会话', kind: 'GROUP', senders: {}, msgs: [], n: 0, first: 0, last: 0 };
+    const base = new Date(2024, 0, 1).getTime();
+    for (let k = 0; k < 5000; k++) {
+      sess.msgs.push({ t: 'T', text: '压测消息 ' + k, ts: base + k * 36e5, fromName: (k % 3 ? '甲' : '乙'), fromId: 'x' + (k % 3) });
+      sess.senders[(k % 3 ? '甲' : '乙')] = (sess.senders[k % 3 ? '甲' : '乙'] || 0) + 1;
+    }
+    sess.n = sess.msgs.length; sess.first = base; sess.last = base + 4999 * 36e5;
+    const before = S.sessions.slice();
+    S.sessions.push(sess);
+    const out = { 合成条数: sess.n };
+    V.openSession(sess.id); await sleep(400);
+    out.开头窗口 = { startIdx: S.startIdx, endIdx: S.endIdx, 渲染条数: document.querySelectorAll('#msgs .m').length };
+    const t0 = performance.now();
+    V.scrollToIdx(50, true);                 // ← 深跳：第 51 条，后面还有 4949 条
+    await sleep(500);
+    out.耗时ms = Math.round(performance.now() - t0);
+    out.深跳后 = { startIdx: S.startIdx, endIdx: S.endIdx,
+                   渲染条数: document.querySelectorAll('#msgs .m').length,
+                   目标在DOM: !!document.getElementById('m-50'),
+                   目标在视野: (() => { const el = document.getElementById('m-50'); if (!el) return false; const r = el.getBoundingClientRect(); return r.top > -5 && r.bottom < window.innerHeight + 5; })(),
+                   底部提示: (document.getElementById('morebelow') || {}).textContent || '',
+                   顶部提示: (document.getElementById('loadmore') || {}).textContent || '' };
+    V.loadNewer();
+    out.向下加载后 = { startIdx: S.startIdx, endIdx: S.endIdx, 渲染条数: document.querySelectorAll('#msgs .m').length };
+    S.sessions.length = 0; for (const x of before) S.sessions.push(x);   // 还原
+    V.openSession(before[0].id); await sleep(200);
+    return out;
+  });
+  chk('深跳到很久以前的记录：只渲染一屏（不再从目标一路画到末尾），目标可见并高亮',
+    deep.深跳后.渲染条数 <= (await page.evaluate(() => window.__viewer.S.win)) + 5 &&
+    deep.深跳后.渲染条数 < 400 && deep.深跳后.目标在DOM && deep.深跳后.目标在视野 && /后面还有/.test(deep.深跳后.底部提示),
+    JSON.stringify(deep));
+  chk('往下滚能继续加载（与「载入更早」对称）',
+    deep.向下加载后.endIdx > deep.深跳后.endIdx && deep.向下加载后.渲染条数 > deep.深跳后.渲染条数,
+    JSON.stringify([deep.深跳后, deep.向下加载后]));
+  chk('深跳耗时在预算内（5000 条会话）', deep.耗时ms < 2000, deep.耗时ms + 'ms');
 
   // 10f. 搜索不再改动侧栏列表（原来每敲一个字都重建 80 行侧栏，是卡顿主因）
   const sideNotTouched = await page.evaluate(async () => {
